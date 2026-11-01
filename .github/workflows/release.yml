@@ -52,9 +52,13 @@ jobs:
           node scripts/release.mjs --notes "${TAG#v}" > notes.md
           if [ ! -s notes.md ]; then echo "::error::No CHANGELOG.md section for ${TAG#v}"; exit 1; fi
           # A draft's tag is created on this commit when the release is published.
-          gh release view "$TAG" >/dev/null 2>&1 \
-            || gh release create "$TAG" --draft --target "$GITHUB_SHA" \
-                 --title "Stagewright ${TAG#v}" --notes-file notes.md
+          # A draft left by a failed run is reused, moved to this commit.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --target "$GITHUB_SHA" --notes-file notes.md
+          else
+            gh release create "$TAG" --draft --target "$GITHUB_SHA" \
+              --title "Stagewright ${TAG#v}" --notes-file notes.md
+          fi
           echo "id=$(gh release view "$TAG" --json databaseId -q .databaseId)" >> "$GITHUB_OUTPUT"
 
   build:
@@ -81,18 +85,20 @@ jobs:
         with: { node-version: 22, cache: npm, cache-dependency-path: app/package-lock.json }
       - run: npm ci
         working-directory: app
-      - name: Check the signing key is set
+      - name: Signing key (whitespace from pasting removed)
         shell: bash
         env:
           KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          if [ -z "$KEY" ]; then
+          key=$(printf '%s' "$KEY" | tr -d '[:space:]')
+          if [ -z "$key" ]; then
             echo "::error::Add the TAURI_SIGNING_PRIVATE_KEY secret (Settings → Secrets and variables → Actions)"; exit 1
           fi
+          echo "::add-mask::$key"
+          echo "TAURI_SIGNING_PRIVATE_KEY=$key" >> "$GITHUB_ENV"
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           projectPath: app

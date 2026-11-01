@@ -1,6 +1,8 @@
 name: release
-# Push a version tag (made by `node scripts/release.mjs <version>`) to publish:
-#   git push origin main v0.3.0
+# Two ways to publish the version in Cargo.toml (set by
+# `node scripts/release.mjs <version>`):
+#   - Actions → release → Run workflow (on main); the tag is made for you, or
+#   - push the tag: git push origin main v0.3.0
 # This builds signed installers for Windows and macOS, attaches them to a
 # GitHub Release with the changelog notes, and publishes latest.json, which the
 # installed apps check to offer the update. The release stays a draft until
@@ -8,6 +10,7 @@ name: release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -21,25 +24,38 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_id: ${{ steps.draft.outputs.id }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
-      - name: The tag matches the version in Cargo.toml
+      - name: Version to release
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           v=$(node scripts/release.mjs --check | sed 's/^versions agree: //')
-          if [ "v$v" != "$GITHUB_REF_NAME" ]; then
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "v$v" != "$GITHUB_REF_NAME" ]; then
             echo "::error::Tag $GITHUB_REF_NAME, but the version is $v"; exit 1
           fi
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$GITHUB_REF_NAME" != main ]; then
+            echo "::error::Run the release from main"; exit 1
+          fi
+          if [ "$(gh release view "v$v" --json isDraft -q .isDraft 2>/dev/null)" = false ]; then
+            echo "::error::v$v is already released. Bump the version first: node scripts/release.mjs <version>"; exit 1
+          fi
+          echo "tag=v$v" >> "$GITHUB_OUTPUT"
       - name: Draft release with the changelog notes
         id: draft
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          node scripts/release.mjs --notes "${GITHUB_REF_NAME#v}" > notes.md
-          if [ ! -s notes.md ]; then echo "::error::No CHANGELOG.md section for ${GITHUB_REF_NAME#v}"; exit 1; fi
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
-                 --title "Stagewright ${GITHUB_REF_NAME#v}" --notes-file notes.md
-          echo "id=$(gh release view "$GITHUB_REF_NAME" --json databaseId -q .databaseId)" >> "$GITHUB_OUTPUT"
+          node scripts/release.mjs --notes "${TAG#v}" > notes.md
+          if [ ! -s notes.md ]; then echo "::error::No CHANGELOG.md section for ${TAG#v}"; exit 1; fi
+          # A draft's tag is created on this commit when the release is published.
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --draft --target "$GITHUB_SHA" \
+                 --title "Stagewright ${TAG#v}" --notes-file notes.md
+          echo "id=$(gh release view "$TAG" --json databaseId -q .databaseId)" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare
@@ -92,7 +108,8 @@ jobs:
       - name: Publish the release (installed apps see it from now on)
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | tee assets.txt
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | tee assets.txt
           grep -qx latest.json assets.txt || { echo "::error::latest.json missing"; exit 1; }
-          gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --draft=false --latest
+          gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --draft=false --latest

@@ -7,8 +7,9 @@
 //   node scripts/release.mjs --check   fail if the copies disagree (CI runs this)
 //   node scripts/release.mjs --notes 0.3.0   print that version's changelog section
 //
-// Pushing the tag (git push origin main v0.3.0) starts the release workflow,
-// which builds the installers and publishes them where the app looks for updates.
+// Then push main and start the release workflow (Actions → release → Run
+// workflow), or push the tag (git push origin main v0.3.0). It builds the
+// installers and publishes them where the app looks for updates.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -94,7 +95,7 @@ function release(next) {
   git("add", "-A");
   git("commit", "-q", "-m", `Release ${next}`);
   git("tag", "-a", `v${next}`, "-m", `Stagewright ${next}\n\n${notes(next)}`);
-  console.log(`Tagged v${next}. Publish it with:\n  git push origin main v${next}`);
+  console.log(`Tagged v${next}. Publish it: git push origin main v${next}\n(or push main and run the release workflow from GitHub's Actions tab)`);
 }
 
 const [arg, ver] = process.argv.slice(2);

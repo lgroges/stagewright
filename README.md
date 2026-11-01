@@ -171,6 +171,9 @@ node scripts/release.mjs 0.3.0      # bump everywhere, date the changelog, commi
 git push origin main v0.3.0         # starts the release workflow
 ```
 
+Or push `main` and start it from GitHub: *Actions → release → Run workflow*. It
+releases the version in `Cargo.toml` and makes the tag itself.
+
 `release.yml` builds signed installers for Windows and macOS, attaches them to a GitHub
 Release with the changelog notes, and publishes `latest.json`, which installed apps check.
 The release stays a draft until both platforms have built. Signing needs the

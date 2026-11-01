@@ -25,6 +25,7 @@ jobs:
     outputs:
       release_id: ${{ steps.draft.outputs.id }}
       tag: ${{ steps.version.outputs.tag }}
+      notes: ${{ steps.draft.outputs.notes }}
     steps:
       - uses: actions/checkout@v4
       - name: Version to release
@@ -60,6 +61,7 @@ jobs:
               --title "Stagewright ${TAG#v}" --notes-file notes.md
           fi
           echo "id=$(gh release view "$TAG" --json databaseId -q .databaseId)" >> "$GITHUB_OUTPUT"
+          { echo 'notes<<NOTES_EOF'; cat notes.md; echo 'NOTES_EOF'; } >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare
@@ -103,6 +105,8 @@ jobs:
         with:
           projectPath: app
           releaseId: ${{ needs.prepare.outputs.release_id }}
+          # Becomes the "What's new" in the app's update prompt (latest.json notes).
+          releaseBody: ${{ needs.prepare.outputs.notes }}
           args: ${{ matrix.args }}
           # The app updates itself with the -setup.exe installer, as it was installed.
           updaterJsonPreferNsis: true

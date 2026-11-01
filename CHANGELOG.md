@@ -6,6 +6,8 @@ version when it offers the update. Add to **Unreleased** as you go;
 
 ## Unreleased
 
+- The update prompt now shows what's new in each version.
+
 ## 0.2.0 (2026-11-01)
 
 - Film and television: feature film, single-camera and multi-camera TV formats, each

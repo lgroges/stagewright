@@ -1,0 +1,12 @@
+title: "The Assessors"
+authors: ["Stagewright sample"]
+format: tv-single
+series: true
+draft: "Writers' draft"
+episodes:
+  - {number: 1, title: "Valuation"}
+  - {number: 2, title: "Appeal"}
+rating_fields: [tension, humour, relevance, quality]
+running_time:
+  words_per_minute: 150
+  seconds_per_lyric_line: 6

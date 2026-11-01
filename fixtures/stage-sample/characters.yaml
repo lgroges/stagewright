@@ -1,0 +1,18 @@
+# A sample play written for Stagewright's tests. Cue names are the keys used in
+# the script. Tracks = a cast of six, with doubling.
+- {id: admiral,    cue: ADMIRAL,    name: "The Admiral", track: null}   # not in the doubling plan
+- {id: mordecai,   cue: MORDECAI,   name: "Mordecai Finch", description: "an inspector of lighthouses", track: actor-1, sex: male}
+- {id: rosalind,   cue: ROSALIND,   name: "Rosalind",   track: actor-2, sex: female}
+- {id: tobias,     cue: TOBIAS,     name: "Tobias",     track: actor-3, sex: male}
+- {id: mayor,      cue: MAYOR,      name: "The Mayor",  track: actor-3, sex: male}
+- {id: hettie,     cue: HETTIE,     name: "Hettie",     track: actor-4, sex: female}
+- {id: duchess,    cue: DUCHESS,    name: "The Duchess", track: actor-5, sex: female}
+- {id: cornelius,  cue: CORNELIUS,  name: "Cornelius", description: "a retired ship’s fiddler", track: actor-6, sex: male}
+- {id: duke,       cue: DUKE,       name: "The Duke",   track: actor-6, sex: male}
+- {id: constable,  cue: CONSTABLE,  name: "The Constable", track: any-free}
+- {id: sailor-1,   cue: SAILOR 1,   name: "Sailor 1",   track: any-free}
+- {id: sailor-2,   cue: SAILOR 2,   name: "Sailor 2",   track: any-free}
+- {id: musician-1, cue: MUSICIAN 1, name: "Musician 1", track: null}   # in the band, not the cast
+- {id: musician-2, cue: MUSICIAN 2, name: "Musician 2", track: null}
+- {id: voice,      cue: VOICE,      name: "Voice",      track: null}
+# ALL is a group cue, not a character.

@@ -1,0 +1,23 @@
+[package]
+name = "stagewright-app"
+version.workspace = true
+description = "Stagewright desktop app"
+edition = "2021"
+license = "UNLICENSED"
+
+[lib]
+name = "stagewright_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.4", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+tauri = { version = "2.12.5", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-process = "2"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
+stagewright-api = { path = "../../crates/stagewright-api" }

@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = ["crates/stagewright-core", "crates/stagewright-cli", "crates/stagewright-api", "app/src-tauri"]
+# The desktop app needs WebView system libraries; plain `cargo build/test` skips it.
+default-members = ["crates/stagewright-core", "crates/stagewright-cli", "crates/stagewright-api"]
+
+[workspace.package]
+edition = "2021"
+# The one version number for every crate and the desktop app.
+# Change it with `node scripts/release.mjs <version>`, not by hand.
+version = "0.2.0"
+license = "UNLICENSED"

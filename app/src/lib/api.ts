@@ -1,0 +1,251 @@
+// Client for the stagewright-api dispatcher. In the desktop app calls go through
+// Tauri's `api` command; in a browser they go to `stagewright serve` over HTTP.
+// Both reach the same Rust code.
+
+export interface ApiErrorBody {
+  code: string;
+  message: string;
+  detail?: { version?: string } & Record<string, unknown>;
+}
+
+export class ApiError extends Error {
+  constructor(public body: ApiErrorBody) {
+    super(body.message);
+  }
+  get code() {
+    return this.body.code;
+  }
+}
+
+export type Format = "stage" | "film" | "tv-single" | "tv-multi";
+
+export const FORMATS: { id: Format; label: string }[] = [
+  { id: "stage", label: "Stage play" },
+  { id: "film", label: "Film screenplay" },
+  { id: "tv-single", label: "TV, single-camera (drama)" },
+  { id: "tv-multi", label: "TV, multi-camera (sitcom)" },
+];
+
+export interface SceneSummary {
+  id: string;
+  title: string;
+  act: number;
+  episode: number | null;
+  label: string;
+  eighths: number;
+  pages: string;
+  headings: string[];
+  number: number | null;
+  status: string | null;
+  location: string | null;
+  file: string;
+  minutes: number;
+  manual_duration: boolean;
+  words: number;
+  speakers: string[];
+}
+
+export interface Act {
+  number: number;
+  episode: number | null;
+  title: string;
+  scenes: SceneSummary[];
+}
+
+export interface Character {
+  id: string;
+  cue: string;
+  name?: string | null;
+  description?: string | null;
+  track?: string | null;
+}
+
+export interface ProjectView {
+  root: string;
+  title: string;
+  subtitle: string | null;
+  authors: string[];
+  rating_fields: string[];
+  running_time: { words_per_minute: number; seconds_per_lyric_line: number };
+  statuses: string[];
+  format: Format;
+  format_label: string;
+  series: boolean;
+  episodes: { number: number; title: string }[];
+  heading_locations: string[];
+  acts: Act[];
+  characters: Character[];
+  locations: { id: string; name?: string | null }[];
+  cues: string[];
+  files: string[];
+  created?: string;
+  created_act?: number;
+  created_episode?: number;
+}
+
+export interface SceneMeta {
+  id: string;
+  title: string | null;
+  act: number | null;
+  scene: number | null;
+  status: string | null;
+  location: string | null;
+  duration: number | null;
+  onstage_silent: string[];
+  synopsis: string | null;
+  notes: string | null;
+  tags: string[];
+  ratings: Record<string, number>;
+}
+
+export interface SceneDoc {
+  id: string;
+  meta: SceneMeta;
+  body: string;
+  version: string;
+  summary: SceneSummary;
+}
+
+export type DoublingIssue =
+  | { kind: "clash"; scene: string; track: string; roles: string[] }
+  | { kind: "quick_change"; from_scene: string; to_scene: string; track: string; from_role: string; to_role: string }
+  | { kind: "unassigned"; role: string; scenes: string[] };
+
+export interface HeadingInfo {
+  text: string;
+  setting: string | null;
+  location: string;
+  time: string | null;
+}
+
+export interface StatsScene {
+  id: string;
+  label: string;
+  title: string;
+  act: number;
+  episode: number | null;
+  eighths: number;
+  pages: string;
+  headings: HeadingInfo[];
+  minutes: number;
+  estimated_minutes: number;
+  manual_duration: boolean;
+  words: number;
+  lyric_lines: number;
+  songs: string[];
+  speeches: Record<string, number>;
+  present: string[];
+}
+
+export interface Stats {
+  format: Format;
+  series: boolean;
+  episodes: { number: number; title: string }[];
+  total_pages: string;
+  scenes: StatsScene[];
+  acts: { number: number; episode: number | null; title: string; minutes: number; pages: string }[];
+  total_minutes: number;
+  roles: { cue: string; track: string | null }[];
+  issues: DoublingIssue[];
+  running_time: { words_per_minute: number; seconds_per_lyric_line: number };
+}
+
+export interface ProjectFile {
+  name: string;
+  text: string;
+  version: string;
+}
+
+type TauriInternals = { invoke: (cmd: string, args: unknown) => Promise<unknown> };
+
+export const isTauri = (): boolean =>
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+async function transport(cmd: string, args: Record<string, unknown>): Promise<unknown> {
+  if (isTauri()) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    try {
+      return await invoke("api", { cmd, args });
+    } catch (e) {
+      if (e && typeof e === "object" && "code" in e) throw new ApiError(e as ApiErrorBody);
+      throw new ApiError({ code: "transport", message: String(e) });
+    }
+  }
+  let res: Response;
+  try {
+    res = await fetch(`/api/${cmd}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(args),
+    });
+  } catch (e) {
+    throw new ApiError({ code: "transport", message: `cannot reach stagewright serve: ${e}` });
+  }
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new ApiError(json ?? { code: "http", message: `HTTP ${res.status}` });
+  return json;
+}
+
+// Calls run one at a time, in order. Saves and metadata edits both depend on
+// the scene's latest version, so they must never overlap.
+let chain: Promise<unknown> = Promise.resolve();
+export function call<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
+  const run = chain.then(() => transport(cmd, args) as Promise<T>);
+  chain = run.catch(() => undefined);
+  return run;
+}
+
+/** Like `call`, but args are computed when the call actually runs (after earlier calls finish). */
+export function callLate<T>(cmd: string, args: () => Record<string, unknown>): Promise<T> {
+  const run = chain.then(() => transport(cmd, args()) as Promise<T>);
+  chain = run.catch(() => undefined);
+  return run;
+}
+
+export interface CollabConfig {
+  relay: string;
+  room: string;
+  name: string;
+  color: string;
+}
+
+export interface DiskSnapshotBody {
+  view: ProjectView;
+  scenes: { id: string; act: number; episode: number | null; meta: SceneMeta; body: string; version: string }[];
+  files: ProjectFile[];
+}
+
+export const api = {
+  projectOpen: (root: string) => call<ProjectView>("project_open", { root }),
+  projectCreate: (root: string, title: string, format: Format = "stage", series = false) =>
+    call<ProjectView>("project_create", { root, title, format, series }),
+  projectView: () => call<ProjectView>("project_view"),
+  projectClose: () => call<null>("project_close"),
+  ping: () => call<{ ok: boolean; root: string | null }>("ping"),
+  sceneRead: (id: string) => call<SceneDoc>("scene_read", { id }),
+  sceneCreate: (act: number, after: string | null, title: string, episode: number | null = null) =>
+    call<ProjectView>("scene_create", { act, after, title, episode }),
+  sceneTrash: (id: string) => call<ProjectView>("scene_trash", { id }),
+  scenesReorder: (act: number, ids: string[], episode: number | null = null) =>
+    call<ProjectView>("scenes_reorder", { act, ids, episode }),
+  actCreate: (episode: number | null = null) => call<ProjectView>("act_create", { episode }),
+  episodeCreate: (title?: string) => call<ProjectView>("episode_create", { title }),
+  exportScript: (kind: "pdf" | "fountain", episode: number | null, path?: string) =>
+    call<{ name: string; pages: number | null; base64?: string; path?: string }>("export", { kind, episode, path }),
+  stats: () => call<Stats>("stats"),
+  fileRead: (name: string) => call<ProjectFile>("file_read", { name }),
+  fileSave: (name: string, text: string, base_version: string) =>
+    call<ProjectFile>("file_save", { name, text, base_version }),
+  // co-writing
+  projectSnapshot: () => call<DiskSnapshotBody>("project_snapshot"),
+  actEnsure: (act: number, episode: number | null = null) => call<ProjectView>("act_ensure", { act, episode }),
+  sceneCreateWithId: (act: number, title: string, id: string, episode: number | null = null) =>
+    call<ProjectView>("scene_create", { act, after: null, title, id, episode }),
+  sceneUpdateMeta: (id: string, patch: Record<string, unknown>, base_version: string) =>
+    call<SceneDoc>("scene_update_meta", { id, patch, base_version }),
+  sceneSave: (id: string, body: string, base_version: string) => call<SceneDoc>("scene_save", { id, body, base_version }),
+  collabRead: () => call<{ config: CollabConfig | null; state: string | null; base: unknown }>("collab_read"),
+  collabWrite: (args: { config?: CollabConfig | null; state?: string; base?: unknown }) => call<null>("collab_write", args),
+  projectJoin: (root: string, files: Record<string, string>, config: CollabConfig) =>
+    call<ProjectView>("project_join", { root, files, config }),
+};

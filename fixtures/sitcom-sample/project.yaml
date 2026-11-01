@@ -1,0 +1,6 @@
+title: "Flat Share"
+authors: ["Stagewright sample"]
+format: tv-multi
+series: true
+episodes:
+  - {number: 1, title: "The Rota"}

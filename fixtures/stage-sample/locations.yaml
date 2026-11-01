@@ -1,0 +1,9 @@
+- {id: admiralty,        name: "An office at the Admiralty"}
+- {id: quay,             name: "The quay at Saltmarsh"}
+- {id: mayors-parlour,   name: "The Mayor’s parlour"}
+- {id: cliff-path,       name: "The cliff path"}
+- {id: chart-room,       name: "The Duke’s chart room"}
+- {id: lamp-room,        name: "The lamp room, top of the lighthouse"}
+- {id: hetties-cottage,  name: "Hettie’s cottage"}
+- {id: lodgings,         name: "Mordecai’s lodgings"}
+- {id: lighthouse,       name: "Outside the lighthouse"}

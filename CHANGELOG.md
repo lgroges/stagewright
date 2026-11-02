@@ -7,6 +7,8 @@ change, the cursor, is listed under 0.3.0.)
 
 ## Unreleased
 
+## 0.4.0 (2026-11-02)
+
 - **Script check.** As you write, likely mistakes are underlined (wavy) and
   conventions noted (dotted); point at one to see why, and fix it in one click where
   the fix is certain. The status bar counts them (click to list them; F8 goes to the

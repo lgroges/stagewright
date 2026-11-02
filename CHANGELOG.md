@@ -6,6 +6,8 @@ version when it offers the update. Add to **Unreleased** as you go;
 
 ## Unreleased
 
+## 0.2.2 (2026-11-02)
+
 - The text cursor is easier to see: white and thicker in dark mode (dark on the light
   theme), in the script and in project files.
 

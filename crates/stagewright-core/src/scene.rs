@@ -428,10 +428,8 @@ pub fn continued_cues(body: &[Element]) -> Vec<usize> {
             Element::Cue(c) => {
                 let speakers: Vec<&str> = c.speakers();
                 let group = speakers.iter().all(|s| *s == "ALL");
-                let marked = c.extension.as_deref().is_some_and(|e| {
-                    let e = e.to_uppercase().replace('’', "'");
-                    e.contains("CONT'D") || e.contains("CONTD")
-                });
+                // Any spelling already typed: (CONT'D), (CONT.), (CONTD), (CONTINUED)…
+                let marked = c.extension.as_deref().is_some_and(|e| e.to_uppercase().contains("CONT"));
                 if !c.dual && !group && !marked && !last.is_empty() && speakers == last {
                     out.push(i);
                 }
@@ -537,7 +535,7 @@ mod tests {
     #[test]
     fn continued_cues_follow_the_same_speaker_after_action() {
         let body = parse_body(
-            "HETTIE\nHello.\n\nShe turns.\n\nHETTIE\nStill here.\n\nTOBIAS\nYes.\n\nHETTIE\nWell.\n\nHETTIE (V.O.)\nAnd again.\n\nHETTIE (CONT'D)\nTyped.\n\nINT. HALL - DAY\n\nHETTIE\nNew scene.\n\nALL\nYes!\n\nALL\nNo!\n\nTOBIAS & HETTIE\nTogether.\n\nTOBIAS & HETTIE\nAgain.\n\nTOBIAS ^\nAt once.",
+            "HETTIE\nHello.\n\nShe turns.\n\nHETTIE\nStill here.\n\nTOBIAS\nYes.\n\nHETTIE\nWell.\n\nHETTIE (V.O.)\nAnd again.\n\nHETTIE (CONT'D)\nTyped.\n\nShe sits.\n\nHETTIE (CONT.)\nTyped the other way.\n\nINT. HALL - DAY\n\nHETTIE\nNew scene.\n\nALL\nYes!\n\nALL\nNo!\n\nTOBIAS & HETTIE\nTogether.\n\nTOBIAS & HETTIE\nAgain.\n\nTOBIAS ^\nAt once.",
         );
         let cues: Vec<String> = continued_cues(&body)
             .into_iter()

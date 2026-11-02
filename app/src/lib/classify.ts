@@ -178,7 +178,8 @@ export function continuedCues(lines: readonly string[], kinds: readonly Kind[]):
       const [name, ext] = stripExtension(t);
       const speakers = name.split("&").map((s) => s.trim()).filter(Boolean);
       const group = speakers.every((s) => s === "ALL");
-      const marked = ext !== null && /CONT'?D/.test(ext.toUpperCase().replace(/’/g, "'"));
+      // Any spelling already typed: (CONT'D), (CONT.), (CONTD), (CONTINUED)…
+      const marked = ext !== null && ext.toUpperCase().includes("CONT");
       const same = speakers.length === last.length && speakers.every((s, j) => s === last[j]);
       if (!dual && !group && !marked && last.length > 0 && same) out.add(i);
       last = speakers;

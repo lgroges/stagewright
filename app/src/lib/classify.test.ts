@@ -48,7 +48,7 @@ describe("live stats", () => {
 describe("continued cues (same cases as the Rust test)", () => {
   it("marks the same speaker after action, as Rust does", () => {
     const body =
-      "HETTIE\nHello.\n\nShe turns.\n\nHETTIE\nStill here.\n\nTOBIAS\nYes.\n\nHETTIE\nWell.\n\nHETTIE (V.O.)\nAnd again.\n\nHETTIE (CONT'D)\nTyped.\n\nINT. HALL - DAY\n\nHETTIE\nNew scene.\n\nALL\nYes!\n\nALL\nNo!\n\nTOBIAS & HETTIE\nTogether.\n\nTOBIAS & HETTIE\nAgain.\n\nTOBIAS ^\nAt once.";
+      "HETTIE\nHello.\n\nShe turns.\n\nHETTIE\nStill here.\n\nTOBIAS\nYes.\n\nHETTIE\nWell.\n\nHETTIE (V.O.)\nAnd again.\n\nHETTIE (CONT'D)\nTyped.\n\nShe sits.\n\nHETTIE (CONT.)\nTyped the other way.\n\nINT. HALL - DAY\n\nHETTIE\nNew scene.\n\nALL\nYes!\n\nALL\nNo!\n\nTOBIAS & HETTIE\nTogether.\n\nTOBIAS & HETTIE\nAgain.\n\nTOBIAS ^\nAt once.";
     const lines = body.split("\n");
     const marked = [...continuedCues(lines, classifyLines(lines))].map((i) => lines[i]);
     expect(marked).toEqual(["HETTIE", "HETTIE (V.O.)", "TOBIAS & HETTIE"]);

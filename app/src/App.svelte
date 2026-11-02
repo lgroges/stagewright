@@ -134,13 +134,16 @@
     <aside class="tree"><SceneTree /></aside>
 
     <main>
+      <!-- The script editor stays alive behind other views, so switching back
+           keeps the text, cursor, scroll and undo history exactly as they were. -->
+      {#if app.scene}
+        <div class="pane" class:gone={app.view.kind !== "script"}><ScriptEditor /></div>
+      {/if}
       {#if app.view.kind === "production"}
         <ProductionView />
       {:else if app.view.kind === "file"}
         {#key app.view.name}<FileEditor name={app.view.name} />{/key}
-      {:else if app.scene}
-        <ScriptEditor />
-      {:else}
+      {:else if !app.scene}
         <div class="empty muted">Choose a scene, or add one.</div>
       {/if}
     </main>
@@ -324,6 +327,12 @@
     min-height: 0;
     min-width: 0;
     background: var(--paper);
+  }
+  .pane {
+    height: 100%;
+  }
+  .pane.gone {
+    display: none;
   }
   .meta {
     grid-area: meta;

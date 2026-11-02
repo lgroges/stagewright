@@ -6,6 +6,12 @@ version when it offers the update. Add to **Unreleased** as you go;
 
 ## Unreleased
 
+- Delete an act or a whole episode from the scene tree (the bin button that appears
+  when you point at its heading). Its scenes go to the project's `.trash` folder, and
+  later acts or episodes move up to close the gap. Works while co-writing too.
+- Fixed: after switching to Production (or a project file) and back to Script, the
+  editor could show the scene as it was when you opened it, often a blank page.
+  Typing there could then overwrite the scene. The editor now stays as you left it.
 - The update prompt now shows what's new in each version.
 
 ## 0.2.0 (2026-11-01)

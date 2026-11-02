@@ -68,8 +68,8 @@
     } else {
       if (shownId) cache.set(shownId, view.state);
       const cached = cache.get(sc.id);
-      // Reuse the cached state (keeps undo history) only if it matches the disk copy.
-      state = cached && cached.doc.toString() === sc.loadedBody ? cached : makeState(sc.loadedBody);
+      // Reuse the cached state (keeps undo history) only if it holds the latest text.
+      state = cached && cached.doc.toString() === sc.body ? cached : makeState(sc.body);
     }
     view.setState(state);
     shownToken = sc.loadToken;

@@ -53,9 +53,15 @@ export interface DiskSnapshot {
 export interface Base {
   scenes: Record<string, { body: string; meta: SharedMeta }>;
   files: Record<string, string>;
+  /**
+   * Act folders (`actKey`s) the disk and the doc last agreed on. An act on disk
+   * but not in the doc is new on disk if it isn't listed here, and was deleted
+   * by a writer if it is. Absent in bases saved before acts could be deleted.
+   */
+  acts?: string[];
 }
 
-export const emptyBase = (): Base => ({ scenes: {}, files: {} });
+export const emptyBase = (): Base => ({ scenes: {}, files: {}, acts: [] });
 
 const dmp = new DiffMatchPatch();
 
@@ -223,6 +229,41 @@ export function addScene(
   scenesMap(doc).set(id, newScene(act, episode, order, meta, body));
 }
 
+/**
+ * Delete an act in the doc: its scenes are trashed, and (unless it is act 0)
+ * later acts of the same episode move up one. Call inside a transaction.
+ */
+export function deleteActInDoc(doc: Y.Doc, act: number, episode: number | null) {
+  const acts = doc.getMap("acts") as Y.Map<boolean>;
+  const st = readDoc(doc);
+  for (const s of st.scenes) {
+    if (s.episode !== episode || s.trashed) continue;
+    const m = scenesMap(doc).get(s.id)!;
+    if (s.act === act) m.set("trashed", true);
+    else if (act >= 1 && s.act > act) m.set("act", s.act - 1);
+  }
+  const mine = st.acts.filter((a) => a.episode === episode).map((a) => a.act);
+  for (const a of mine) acts.delete(actKey(episode, a));
+  for (const a of mine) {
+    if (a === act) continue;
+    acts.set(actKey(episode, act >= 1 && a > act ? a - 1 : a), true);
+  }
+}
+
+/** Delete an episode in the doc: its scenes are trashed, later episodes move up. */
+export function deleteEpisodeInDoc(doc: Y.Doc, episode: number) {
+  const acts = doc.getMap("acts") as Y.Map<boolean>;
+  const st = readDoc(doc);
+  for (const s of st.scenes) {
+    if (s.episode === null || s.trashed) continue;
+    const m = scenesMap(doc).get(s.id)!;
+    if (s.episode === episode) m.set("trashed", true);
+    else if (s.episode > episode) m.set("episode", s.episode - 1);
+  }
+  for (const a of st.acts) if (a.episode !== null && a.episode >= episode) acts.delete(actKey(a.episode, a.act));
+  for (const a of st.acts) if (a.episode !== null && a.episode > episode) acts.set(actKey(a.episode - 1, a.act), true);
+}
+
 export function setMeta(doc: Y.Doc, id: string, patch: SharedMeta) {
   const meta = scenesMap(doc).get(id)?.get("meta") as Y.Map<unknown> | undefined;
   if (!meta) return;
@@ -271,6 +312,7 @@ export function baseFromDisk(snap: DiskSnapshot): Base {
   const base = emptyBase();
   for (const s of snap.scenes) base.scenes[s.id] = { body: s.body, meta: pickMeta(s.meta) };
   for (const f of snap.files) base.files[f.name] = f.text;
+  base.acts = snap.view.acts.map((a) => actKey(a.episode, a.number));
   return base;
 }
 
@@ -293,9 +335,14 @@ export function foldExternal(doc: Y.Doc, snap: DiskSnapshot, base: Base): FoldRe
   const state = readDoc(doc);
   const onDisk = new Set(snap.scenes.map((s) => s.id));
   doc.transact(() => {
-    // Acts on disk are always shared (e.g. a new episode added here).
+    // Acts new on disk are shared (e.g. a new episode added here); ones a writer
+    // deleted from the doc stay deleted, and their folders are removed later.
     const acts = doc.getMap("acts") as Y.Map<boolean>;
-    for (const a of snap.view.acts) if (!acts.has(actKey(a.episode, a.number))) acts.set(actKey(a.episode, a.number), true);
+    const known = new Set(base.acts ?? []);
+    for (const a of snap.view.acts) {
+      const k = actKey(a.episode, a.number);
+      if (!acts.has(k) && !known.has(k)) acts.set(k, true);
+    }
     for (const d of snap.scenes) {
       const shared = state.scenes.find((s) => s.id === d.id);
       const b = base.scenes[d.id];
@@ -348,6 +395,7 @@ export function foldExternal(doc: Y.Doc, snap: DiskSnapshot, base: Base): FoldRe
 
 export type Op =
   | { kind: "act_ensure"; act: number; episode: number | null }
+  | { kind: "act_remove"; act: number; episode: number | null }
   | { kind: "create"; id: string; act: number; episode: number | null; title: string }
   | { kind: "trash"; id: string }
   | { kind: "reorder"; act: number; episode: number | null; ids: string[] }
@@ -355,13 +403,19 @@ export type Op =
   | { kind: "body"; id: string; body: string; version: string }
   | { kind: "file"; name: string; text: string; version: string };
 
+/** Every act the doc wants: its act list plus any act a live scene is in. */
+function wantedActs(want: SharedState): Map<string, ActKey> {
+  const wantActs = new Map<string, ActKey>();
+  for (const a of want.acts) wantActs.set(actKey(a.episode, a.act), a);
+  for (const s of want.scenes) if (!s.trashed) wantActs.set(actKey(s.episode, s.act), { episode: s.episode, act: s.act });
+  return wantActs;
+}
+
 /** Structural ops: acts, new scenes, trashed scenes. Run these first, then re-snapshot. */
 export function planStructure(snap: DiskSnapshot, want: SharedState): Op[] {
   const ops: Op[] = [];
   const diskActs = new Set(snap.view.acts.map((a) => actKey(a.episode, a.number)));
-  const wantActs = new Map<string, ActKey>();
-  for (const a of want.acts) wantActs.set(actKey(a.episode, a.act), a);
-  for (const s of want.scenes) if (!s.trashed) wantActs.set(actKey(s.episode, s.act), { episode: s.episode, act: s.act });
+  const wantActs = wantedActs(want);
   const sorted = [...wantActs.values()].sort((x, y) => (x.episode ?? 0) - (y.episode ?? 0) || x.act - y.act);
   for (const a of sorted) {
     if (!diskActs.has(actKey(a.episode, a.act))) ops.push({ kind: "act_ensure", act: a.act, episode: a.episode });
@@ -392,6 +446,14 @@ export function planOrder(snap: DiskSnapshot, want: SharedState): Op[] {
   return ops;
 }
 
+/** Last: remove act folders the doc no longer has, once moves have emptied them. */
+export function planCleanup(snap: DiskSnapshot, want: SharedState): Op[] {
+  const wantActs = wantedActs(want);
+  return snap.view.acts
+    .filter((a) => !wantActs.has(actKey(a.episode, a.number)) && a.scenes.length === 0)
+    .map((a) => ({ kind: "act_remove", act: a.number, episode: a.episode ?? null }) as Op);
+}
+
 /** Metadata, text and project files. */
 export function planContent(snap: DiskSnapshot, want: SharedState): Op[] {
   const ops: Op[] = [];
@@ -420,7 +482,12 @@ export const EMPTY_VERSION = "cbf29ce484222325";
 
 /** After writing, record as base everything the disk now agrees with the doc on. */
 export function updateBase(base: Base, snap: DiskSnapshot, want: SharedState): Base {
-  const next: Base = { scenes: { ...base.scenes }, files: { ...base.files } };
+  const wantActs = wantedActs(want);
+  const next: Base = {
+    scenes: { ...base.scenes },
+    files: { ...base.files },
+    acts: snap.view.acts.map((a) => actKey(a.episode, a.number)).filter((k) => wantActs.has(k)),
+  };
   const shared = new Map(want.scenes.map((s) => [s.id, s]));
   const onDisk = new Set<string>();
   for (const d of snap.scenes) {

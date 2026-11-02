@@ -596,3 +596,184 @@ fn export_pdf_and_fountain() {
         "not_found"
     );
 }
+
+// ---------------------------------------------------------------- deleting acts and episodes
+
+fn trash_entries(root: &Path) -> Vec<String> {
+    files_in(&root.join(".trash"))
+}
+
+fn scene_text(root: &Path, id: &str) -> String {
+    let p = stagewright_core::Project::load(root).unwrap();
+    fs::read_to_string(&p.scenes.iter().find(|s| s.scene.meta.id == id).unwrap().path).unwrap()
+}
+
+#[test]
+fn deleting_an_act_trashes_its_scenes_and_closes_the_gap() {
+    let (t, mut ws) = stage_sample();
+    let v = call(&mut ws, "act_delete", json!({"act": 1}));
+    assert_eq!(v["trashed_scenes"], 6);
+    // Act Two is now act 1, with its scenes renumbered and files intact.
+    assert_eq!(v["acts"].as_array().unwrap().len(), 2);
+    assert_eq!(v["acts"][1]["number"], 1);
+    assert_eq!(v["acts"][1]["title"], "Act One");
+    assert_eq!(act_ids(&v, 1), vec!["sc-2-1", "sc-2-2", "sc-2-3", "sc-2-4"]);
+    assert!(!t.path().join("acts/02").exists());
+    assert_eq!(
+        files_in(&t.path().join("acts/01")),
+        vec![
+            "010-hetties-cottage.scene",
+            "020-mordecais-lodgings.scene",
+            "030-the-storm.scene",
+            "040-outside-the-lighthouse.scene"
+        ]
+    );
+    let moved = scene_text(t.path(), "sc-2-3");
+    assert!(
+        moved.contains("\nact: 1\n") && moved.contains("\nscene: 3\n"),
+        "{moved}"
+    );
+    // The six scenes are in one folder in .trash, untouched.
+    let trash = trash_entries(t.path());
+    assert_eq!(trash.len(), 1);
+    assert!(trash[0].ends_with("-act01"), "{trash:?}");
+    assert_eq!(files_in(&t.path().join(".trash").join(&trash[0])).len(), 6);
+    // project.yaml: the default title follows the new number.
+    let yaml = fs::read_to_string(t.path().join("project.yaml")).unwrap();
+    assert!(
+        yaml.contains("acts:\n  - {number: 0, title: \"Prologue\"}\n  - {number: 1, title: \"Act One\"}\n"),
+        "{yaml}"
+    );
+    assert!(!yaml.contains("Act Two"), "{yaml}");
+    // Everything still loads and round-trips.
+    let p = stagewright_core::Project::load(t.path()).unwrap();
+    assert_eq!(p.scenes.len(), 5);
+    for sf in &p.scenes {
+        assert_eq!(sf.scene.to_source(), fs::read_to_string(&sf.path).unwrap());
+    }
+}
+
+#[test]
+fn deleting_the_prologue_leaves_the_acts_alone() {
+    let (t, mut ws) = stage_sample();
+    let v = call(&mut ws, "act_delete", json!({"act": 0}));
+    assert_eq!(v["trashed_scenes"], 1);
+    let numbers: Vec<u64> = v["acts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["number"].as_u64().unwrap())
+        .collect();
+    assert_eq!(numbers, vec![1, 2]);
+    assert_eq!(v["acts"][1]["title"], "Act Two");
+    let yaml = fs::read_to_string(t.path().join("project.yaml")).unwrap();
+    assert!(
+        !yaml.contains("Prologue") && yaml.contains("{number: 2, title: \"Act Two\"}"),
+        "{yaml}"
+    );
+}
+
+#[test]
+fn an_empty_act_is_simply_removed_and_the_last_act_is_kept() {
+    let (t, mut ws) = fixture("film-sample");
+    call(&mut ws, "act_create", json!({}));
+    assert!(t.path().join("acts/02").exists());
+    call(&mut ws, "act_delete", json!({"act": 2}));
+    assert!(!t.path().join("acts/02").exists());
+    assert!(!t.path().join(".trash").exists());
+    let e = dispatch(&mut ws, "act_delete", json!({"act": 1})).unwrap_err();
+    assert_eq!(e.code, "bad_args");
+    let e = dispatch(&mut ws, "act_delete", json!({"act": 7})).unwrap_err();
+    assert_eq!(e.code, "not_found");
+}
+
+#[test]
+fn deleting_an_act_in_an_episode_only_moves_that_episodes_acts() {
+    let (t, mut ws) = fixture("tv-series-sample");
+    let v = call(&mut ws, "act_delete", json!({"episode": 1, "act": 1}));
+    assert_eq!(v["trashed_scenes"], 2);
+    let acts: Vec<(u64, u64)> = v["acts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| (a["episode"].as_u64().unwrap(), a["number"].as_u64().unwrap()))
+        .collect();
+    assert_eq!(acts, vec![(1, 0), (1, 1), (2, 1)]);
+    assert!(t.path().join("episodes/01/acts/01").exists() && !t.path().join("episodes/01/acts/02").exists());
+    assert!(trash_entries(t.path())[0].ends_with("-ep01-act01"));
+    // The last act of an episode stays: delete the episode instead.
+    let e = dispatch(&mut ws, "act_delete", json!({"episode": 2, "act": 1})).unwrap_err();
+    assert_eq!(e.code, "bad_args");
+}
+
+#[test]
+fn deleting_an_episode_moves_the_later_ones_up() {
+    let (t, mut ws) = fixture("tv-series-sample");
+    let before = call(&mut ws, "project_view", json!({}));
+    let ep2: Vec<String> = before["acts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|a| a["episode"] == 2)
+        .flat_map(|a| {
+            a["scenes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| s["id"].as_str().unwrap().to_string())
+        })
+        .collect();
+    let v = call(&mut ws, "episode_delete", json!({"episode": 1}));
+    assert!(v["trashed_scenes"].as_u64().unwrap() >= 3);
+    assert_eq!(v["episodes"].as_array().unwrap().len(), 1);
+    assert_eq!(v["episodes"][0]["number"], 1);
+    assert_eq!(v["episodes"][0]["title"], "Appeal");
+    assert!(t.path().join("episodes/01").exists() && !t.path().join("episodes/02").exists());
+    for id in &ep2 {
+        let text = scene_text(t.path(), id);
+        assert!(text.contains("\nepisode: 1\n"), "{text}");
+    }
+    assert!(trash_entries(t.path())[0].ends_with("-ep01"));
+    let yaml = fs::read_to_string(t.path().join("project.yaml")).unwrap();
+    assert!(
+        yaml.contains("episodes:\n  - {number: 1, title: \"Appeal\"}\n"),
+        "{yaml}"
+    );
+    let e = dispatch(&mut ws, "episode_delete", json!({"episode": 1})).unwrap_err();
+    assert_eq!(e.code, "bad_args");
+}
+
+#[test]
+fn default_episode_titles_follow_their_numbers() {
+    let text = "title: x\nseries: true\nepisodes:\n  - {number: 1, title: \"Pilot\"}\n  - {number: 2, title: \"Episode 2\"}\n  - {number: 3, title: \"Episode 3\"}\n";
+    let out = crate::ops::yaml_remove_episode(text, 2).unwrap();
+    assert_eq!(
+        out,
+        "title: x\nseries: true\nepisodes:\n  - {number: 1, title: \"Pilot\"}\n  - {number: 2, title: \"Episode 2\"}\n"
+    );
+    let out = crate::ops::yaml_remove_episode(text, 1).unwrap();
+    assert!(
+        out.contains("{number: 1, title: \"Episode 1\"}\n  - {number: 2, title: \"Episode 2\"}"),
+        "{out}"
+    );
+    // A series' act titles are shared by every episode, so they are left alone.
+    let acts = "title: x\nacts:\n  - {number: 1, title: \"Act One\"}\n  - {number: 2, title: \"The Turn\"}\n";
+    assert_eq!(crate::ops::yaml_remove_act(acts, 1, true).unwrap(), acts);
+    let out = crate::ops::yaml_remove_act(acts, 1, false).unwrap();
+    assert_eq!(out, "title: x\nacts:\n  - {number: 1, title: \"The Turn\"}\n");
+}
+
+#[test]
+fn removing_an_empty_act_folder_for_co_writing() {
+    let (t, mut ws) = fixture("tv-series-sample");
+    let e = dispatch(&mut ws, "act_remove_empty", json!({"episode": 2, "act": 1})).unwrap_err();
+    assert_eq!(e.code, "not_empty");
+    // Empty it (as earlier co-writing steps would), then it goes, and so does the episode.
+    let dir = t.path().join("episodes/02/acts/01");
+    for f in files_in(&dir) {
+        fs::remove_file(dir.join(f)).unwrap();
+    }
+    let v = call(&mut ws, "act_remove_empty", json!({"episode": 2, "act": 1}));
+    assert!(!t.path().join("episodes/02").exists());
+    assert!(v["acts"].as_array().unwrap().iter().all(|a| a["episode"] == 1));
+}

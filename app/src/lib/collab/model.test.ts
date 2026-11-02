@@ -5,10 +5,13 @@ import {
   addScene,
   applyText,
   baseFromDisk,
+  deleteActInDoc,
+  deleteEpisodeInDoc,
   foldExternal,
   mergeText,
   orderAt,
   pickMeta,
+  planCleanup,
   planContent,
   planOrder,
   planStructure,
@@ -58,6 +61,10 @@ class FakeDisk {
       case "act_ensure":
         if (!this.acts.some(([e, a]) => e === op.episode && a === op.act)) this.acts.push([op.episode, op.act]);
         break;
+      case "act_remove":
+        if (this.scenes.some((s) => s.act === op.act && (s.episode ?? null) === op.episode)) throw new Error("not empty");
+        this.acts = this.acts.filter(([e, a]) => !(e === op.episode && a === op.act));
+        break;
       case "create": {
         const here = this.scenes.filter((s) => s.act === op.act && (s.episode ?? null) === op.episode);
         const order = Math.max(-1, ...here.map((s) => s.order)) + 1;
@@ -101,6 +108,7 @@ function reconcile(doc: Y.Doc, disk: FakeDisk, base: Base): Base {
   for (const op of planStructure(disk.snap(), want)) disk.apply(op);
   for (const op of planOrder(disk.snap(), want)) disk.apply(op);
   for (const op of planContent(disk.snap(), want)) disk.apply(op);
+  for (const op of planCleanup(disk.snap(), want)) disk.apply(op);
   return updateBase(base, disk.snap(), want);
 }
 
@@ -165,7 +173,7 @@ describe("seeding and joining", () => {
     sync(docA, docB);
     const diskB = new FakeDisk();
     diskB.files = { ...readDoc(docB).files }; // project_join writes the files
-    reconcile(docB, diskB, { scenes: {}, files: { ...diskB.files } });
+    reconcile(docB, diskB, { scenes: {}, files: { ...diskB.files }, acts: [] });
 
     expect(diskState(diskB)).toEqual(diskState(diskA));
     // and the sharer has nothing to do
@@ -184,7 +192,7 @@ describe("two writers", () => {
     sync(docA, docB);
     const diskB = new FakeDisk();
     diskB.files = { ...readDoc(docB).files };
-    let baseB = reconcile(docB, diskB, { scenes: {}, files: { ...diskB.files } });
+    let baseB = reconcile(docB, diskB, { scenes: {}, files: { ...diskB.files }, acts: [] });
     const step = () => {
       sync(docA, docB);
       baseA = reconcile(docA, diskA, baseA);
@@ -306,7 +314,7 @@ describe("series", () => {
     sync(docA, docB);
     const diskB = new FakeDisk();
     diskB.files = { ...readDoc(docB).files };
-    let baseB = reconcile(docB, diskB, { scenes: {}, files: { ...diskB.files } });
+    let baseB = reconcile(docB, diskB, { scenes: {}, files: { ...diskB.files }, acts: [] });
     expect(diskState(diskB)).toEqual(diskState(diskA));
 
     // B moves e1b to the top of episode 2
@@ -327,5 +335,93 @@ describe("series", () => {
     const acts = diskState(diskA).acts;
     expect(acts.find((a) => a.e === 2 && a.n === 1)!.ids).toEqual(["e1b", "e2a"]);
     expect(acts.some((a) => a.e === 2 && a.n === 2)).toBe(true);
+  });
+});
+
+describe("deleting acts and episodes while co-writing", () => {
+  function threeActs(): FakeDisk {
+    const d = sampleLike();
+    d.acts.push([null, 3]);
+    d.scenes.push({ id: "d", act: 3, order: 0, body: "Dusk.\n", version: "1", meta: { title: "Fourth" } as never });
+    return d;
+  }
+
+  function pairOf(make: () => FakeDisk) {
+    const diskA = make();
+    const docA = new Y.Doc();
+    seedFromDisk(docA, diskA.snap());
+    let baseA = baseFromDisk(diskA.snap());
+    const docB = new Y.Doc();
+    sync(docA, docB);
+    const diskB = new FakeDisk();
+    diskB.files = { ...readDoc(docB).files };
+    let baseB = reconcile(docB, diskB, { scenes: {}, files: { ...diskB.files }, acts: [] });
+    const step = () => {
+      for (let i = 0; i < 3; i++) {
+        sync(docA, docB);
+        baseA = reconcile(docA, diskA, baseA);
+        baseB = reconcile(docB, diskB, baseB);
+      }
+    };
+    return { docA, docB, diskA, diskB, step };
+  }
+
+  it("an act deleted by one writer is gone from both folders, and later acts move up", () => {
+    const { docA, diskA, diskB, step } = pairOf(threeActs);
+    docA.transact(() => deleteActInDoc(docA, 2, null));
+    step();
+    for (const d of [diskA, diskB]) {
+      const s = diskState(d);
+      expect(s.acts).toEqual([
+        { e: null, n: 1, ids: ["a", "b"] },
+        { e: null, n: 2, ids: ["d"] },
+      ]);
+      expect(s.scenes.c).toBeUndefined();
+    }
+    // It stays deleted: the other writer's folder doesn't bring it back.
+    step();
+    expect(diskState(diskB).acts.map((a) => a.n)).toEqual([1, 2]);
+    expect(readDoc(docA).acts.map((a) => a.act)).toEqual([1, 2]);
+  });
+
+  it("an act the other writer adds a scene to while offline survives with it", () => {
+    const { docA, docB, diskA, diskB, step } = pairOf(threeActs);
+    docA.transact(() => deleteActInDoc(docA, 3, null));
+    // B, not yet synced, writes a new scene into act 3 on disk.
+    diskB.scenes.push({ id: "z", act: 3, order: 1, body: "Late.\n", version: "1", meta: { title: "Late" } as never });
+    step();
+    expect(diskState(diskA)).toEqual(diskState(diskB));
+    expect(diskState(diskA).acts.find((a) => a.n === 3)?.ids).toEqual(["z"]);
+    expect(readDoc(docB).scenes.find((s) => s.id === "d")!.trashed).toBe(true);
+  });
+
+  it("an episode deleted by one writer renumbers the rest in both folders", () => {
+    const series = () => {
+      const d = new FakeDisk();
+      d.acts = [
+        [1, 1],
+        [2, 1],
+        [2, 2],
+        [3, 1],
+      ];
+      d.scenes = [
+        { id: "e1", act: 1, episode: 1, order: 0, body: "One.\n", version: "1", meta: { title: "One" } as never },
+        { id: "e2", act: 1, episode: 2, order: 0, body: "Two.\n", version: "1", meta: { title: "Two" } as never },
+        { id: "e2b", act: 2, episode: 2, order: 0, body: "Two B.\n", version: "1", meta: { title: "Two B" } as never },
+        { id: "e3", act: 1, episode: 3, order: 0, body: "Three.\n", version: "1", meta: { title: "Three" } as never },
+      ];
+      d.files = { "project.yaml": "title: S\nseries: true\n" };
+      return d;
+    };
+    const { docB, diskA, diskB, step } = pairOf(series);
+    docB.transact(() => deleteEpisodeInDoc(docB, 1));
+    step();
+    for (const d of [diskA, diskB]) {
+      expect(diskState(d).acts).toEqual([
+        { e: 1, n: 1, ids: ["e2"] },
+        { e: 1, n: 2, ids: ["e2b"] },
+        { e: 2, n: 1, ids: ["e3"] },
+      ]);
+    }
   });
 });

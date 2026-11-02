@@ -23,8 +23,14 @@ interface OpenScene {
   version: string;
   meta: SceneMeta;
   summary: SceneSummary;
-  /** Body as last loaded from disk; the editor starts from this. */
+  /** Body as last loaded from disk. */
   loadedBody: string;
+  /**
+   * The latest text, including unsaved typing. An editor that is created
+   * afresh (after another view was shown, say) must start from this, never
+   * from `loadedBody`, or it would show, and then save, an old version.
+   */
+  body: string;
   /** Bumps when the editor must replace its document (open, reload). */
   loadToken: number;
 }
@@ -259,6 +265,7 @@ class AppState {
           eighths: 0, pages: "", headings: [], speakers: [],
         },
         loadedBody: "",
+        body: "",
         loadToken: ++this.loadCounter,
       };
       this.collab.setScene(id);
@@ -282,6 +289,8 @@ class AppState {
       meta: doc.meta,
       summary: doc.summary,
       loadedBody: replaceBody ? doc.body : (this.scene?.loadedBody ?? doc.body),
+      // After a save, keep what the editor holds: typing may have continued.
+      body: replaceBody ? doc.body : (this.scene?.id === doc.id ? this.scene.body : doc.body),
       loadToken: token,
     };
     this.patchSummary(doc.summary);
@@ -301,6 +310,7 @@ class AppState {
 
   /** Called by the editor on every change; saving is debounced. */
   bodyChanged(body: string) {
+    if (this.scene) this.scene.body = body;
     if (this.collab) return; // the editor writes straight into the shared text
     this.pendingBody = body;
     if (this.saveStatus !== "conflict") this.saveStatus = "unsaved";
@@ -460,6 +470,39 @@ class AppState {
     await this.structural(() => api.episodeCreate());
     // Shared projects pick the new episode up from the folder on the next pass.
     this.collab?.scheduleReconcile(0);
+  }
+
+  /** Delete an act; its scenes go to the project's .trash folder. */
+  async deleteAct(act: number, episode: number | null = null) {
+    if (this.collab) {
+      const series = !!this.project?.series;
+      const text = this.collab.fileText("project.yaml");
+      await this.guard(async () => {
+        const yaml = text === null ? null : (await api.yamlRemoveAct(text, act, series)).text;
+        this.collab!.deleteAct(act, episode, yaml);
+      });
+    } else {
+      await this.structural(() => api.actDelete(act, episode));
+    }
+    if (!this.scene) await this.openFirstScene();
+  }
+
+  /** Delete an episode; its scenes go to the project's .trash folder. */
+  async deleteEpisode(episode: number) {
+    if (this.collab) {
+      const text = this.collab.fileText("project.yaml") ?? "";
+      await this.guard(async () => {
+        this.collab!.deleteEpisode(episode, (await api.yamlRemoveEpisode(text, episode)).text);
+      });
+    } else {
+      await this.structural(() => api.episodeDelete(episode));
+    }
+    if (!this.scene) await this.openFirstScene();
+  }
+
+  private async openFirstScene() {
+    const first = this.allScenes()[0];
+    if (first) await this.openScene(first.id);
   }
 
   /** Export the script. Desktop: choose where to save. Browser: download. */

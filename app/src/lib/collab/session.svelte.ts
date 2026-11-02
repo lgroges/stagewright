@@ -15,9 +15,12 @@ import {
   foldExternal,
   orderAt,
   pickMeta,
+  planCleanup,
   planContent,
   planOrder,
   planStructure,
+  deleteActInDoc,
+  deleteEpisodeInDoc,
   readDoc,
   readScene,
   sceneBody,
@@ -226,7 +229,7 @@ export class CollabSession {
     onProject: (v: ProjectView) => void,
     onShared: () => void,
   ): CollabSession {
-    const base: Base = { scenes: {}, files: { ...fetched.files } };
+    const base: Base = { scenes: {}, files: { ...fetched.files }, acts: [] };
     return new CollabSession(fetched.config, fetched.doc, fetched.provider, base, onProject, onShared);
   }
 
@@ -309,6 +312,27 @@ export class CollabSession {
     return next;
   }
 
+  /** Delete an act for every writer. `projectYaml`: the shared project.yaml without it. */
+  deleteAct(act: number, episode: number | null, projectYaml: string | null) {
+    this.doc.transact(() => {
+      deleteActInDoc(this.doc, act, episode);
+      if (projectYaml !== null) setFile(this.doc, "project.yaml", projectYaml);
+    }, LOCAL);
+  }
+
+  /** Delete an episode for every writer. */
+  deleteEpisode(episode: number, projectYaml: string) {
+    this.doc.transact(() => {
+      deleteEpisodeInDoc(this.doc, episode);
+      setFile(this.doc, "project.yaml", projectYaml);
+    }, LOCAL);
+  }
+
+  /** The shared text of a project file (project.yaml …). */
+  fileText(name: string): string | null {
+    return readDoc(this.doc).files[name] ?? null;
+  }
+
   updateMeta(id: string, patch: SharedMeta) {
     this.doc.transact(() => setMeta(this.doc, id, patch), LOCAL);
   }
@@ -353,7 +377,7 @@ export class CollabSession {
       this.doc.transact(() => foldExternal(this.doc, snap, this.base), DISK);
       const want = readDoc(this.doc);
       let wrote = false;
-      for (const plan of [planStructure, planOrder, planContent]) {
+      for (const plan of [planStructure, planOrder, planContent, planCleanup]) {
         const ops = plan(snap, want);
         if (!ops.length) continue;
         await this.execute(ops);
@@ -386,6 +410,9 @@ export class CollabSession {
         switch (op.kind) {
           case "act_ensure":
             await api.actEnsure(op.act, op.episode);
+            break;
+          case "act_remove":
+            await api.actRemoveEmpty(op.act, op.episode);
             break;
           case "create":
             await api.sceneCreateWithId(op.act, op.title, op.id, op.episode);

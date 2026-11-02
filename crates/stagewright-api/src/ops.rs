@@ -783,6 +783,226 @@ pub fn episode_create(root: &Path, title: Option<&str>) -> ApiResult {
     Ok(view)
 }
 
+// ---------------------------------------------------------------- deleting acts and episodes
+
+/// A folder in `.trash/` named after what it held, e.g. `1730000000-ep02-act03`.
+fn trash_folder(root: &Path, what: &str) -> Result<PathBuf, ApiError> {
+    let trash = root.join(".trash");
+    fs::create_dir_all(&trash).map_err(|e| io_err(&trash, e))?;
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let mut dest = trash.join(format!("{stamp}-{what}"));
+    let mut n = 1;
+    while dest.exists() {
+        n += 1;
+        dest = trash.join(format!("{stamp}-{what}-{n}"));
+    }
+    Ok(dest)
+}
+
+/// `ep02-act03`, or `act03` outside a series.
+fn act_tag(a: ActRef) -> String {
+    match a.episode {
+        Some(e) => format!("ep{e:02}-act{:02}", a.act),
+        None => format!("act{:02}", a.act),
+    }
+}
+
+/// Rewrite a numbered list in project.yaml (`acts:` or `episodes:`): drop the
+/// entry numbered `removed` and close the gap. Entries keep their other fields;
+/// a default title ("Act Three", "Episode 3") follows its new number.
+fn renumber_list(
+    text: &str,
+    key: &str,
+    removed: u32,
+    shift_from: u32,
+    default_title: impl Fn(u32) -> String,
+) -> Result<String, ApiError> {
+    let doc: serde_yaml::Value =
+        serde_yaml::from_str(text).map_err(|e| ApiError::new("invalid_yaml", e.to_string()))?;
+    let Some(list) = doc.get(key).and_then(|v| v.as_sequence()) else {
+        return Ok(text.to_string());
+    };
+    let mut items = Vec::new();
+    for item in list {
+        let mut v: Value = serde_json::to_value(item).map_err(|e| ApiError::new("invalid_yaml", e.to_string()))?;
+        let Some(n) = v.get("number").and_then(Value::as_u64).map(|n| n as u32) else {
+            items.push(v);
+            continue;
+        };
+        if n == removed {
+            continue;
+        }
+        if n > removed && n >= shift_from {
+            v["number"] = json!(n - 1);
+            if v.get("title").and_then(Value::as_str) == Some(default_title(n).as_str()) {
+                v["title"] = json!(default_title(n - 1));
+            }
+        }
+        items.push(v);
+    }
+    let updated = stagewright_core::frontmatter::set_key_list(text, key, &items);
+    serde_yaml::from_str::<ProjectMeta>(&updated).map_err(|e| ApiError::new("invalid_yaml", e.to_string()))?;
+    Ok(updated)
+}
+
+/// project.yaml without act `act` (acts after it move up one). Act 0, the
+/// prologue or teaser, never shifts. A series' act titles are shared by every
+/// episode, so a series' list is left alone.
+pub fn yaml_remove_act(text: &str, act: u32, series: bool) -> Result<String, ApiError> {
+    if series {
+        return Ok(text.to_string());
+    }
+    let shift_from = if act == 0 { u32::MAX } else { act + 1 };
+    renumber_list(text, "acts", act, shift_from, |n| match NUMBER_WORDS.get(n as usize) {
+        Some(w) => format!("Act {w}"),
+        None => format!("Act {n}"),
+    })
+}
+
+/// project.yaml without episode `episode` (later episodes move up one).
+pub fn yaml_remove_episode(text: &str, episode: u32) -> Result<String, ApiError> {
+    renumber_list(text, "episodes", episode, episode + 1, |n| format!("Episode {n}"))
+}
+
+/// Delete an act: its scenes go to `.trash/` (as one folder), later acts in the
+/// same episode move up to close the gap, and project.yaml follows.
+pub fn act_delete(root: &Path, aref: ActRef) -> ApiResult {
+    let p = load(root)?;
+    if !p.act_refs.contains(&aref) {
+        return Err(ApiError::new("not_found", format!("act {} does not exist", aref.act)));
+    }
+    let siblings: Vec<ActRef> = p
+        .act_refs
+        .iter()
+        .copied()
+        .filter(|a| a.episode == aref.episode)
+        .collect();
+    if siblings.len() <= 1 {
+        return Err(ApiError::new(
+            "bad_args",
+            if p.series {
+                "an episode needs at least one act; delete the episode instead"
+            } else {
+                "a project needs at least one act"
+            },
+        ));
+    }
+    let trashed = p.scenes.iter().filter(|s| s.act_ref() == aref).count();
+    let dir = act_dir(root, aref);
+    if trashed > 0 {
+        let dest = trash_folder(root, &act_tag(aref))?;
+        fs::rename(&dir, &dest).map_err(|e| io_err(&dir, e))?;
+    } else {
+        fs::remove_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
+    }
+    // Close the gap: act n+1 becomes n, and so on (act 0 never moves).
+    if aref.act >= 1 {
+        let mut later: Vec<ActRef> = siblings.into_iter().filter(|a| a.act > aref.act).collect();
+        later.sort();
+        for old in later {
+            let new = ActRef {
+                episode: old.episode,
+                act: old.act - 1,
+            };
+            let (from, to) = (act_dir(root, old), act_dir(root, new));
+            fs::rename(&from, &to).map_err(|e| io_err(&from, e))?;
+            renumber_in_place(root, new)?;
+        }
+    }
+    let yaml = root.join("project.yaml");
+    let text = read_text(&yaml)?;
+    let updated = yaml_remove_act(&text, aref.act, p.series)?;
+    if updated != text {
+        write_atomic(&yaml, &updated)?;
+    }
+    let mut view = project_view(root)?;
+    view["trashed_scenes"] = json!(trashed);
+    Ok(view)
+}
+
+/// Delete an episode: its folder goes to `.trash/`, later episodes move up.
+pub fn episode_delete(root: &Path, episode: u32) -> ApiResult {
+    let p = load(root)?;
+    if !p.series {
+        return Err(ApiError::new("bad_args", "this project is not a series"));
+    }
+    if !p.episode_numbers.contains(&episode) {
+        return Err(ApiError::new("not_found", format!("episode {episode} does not exist")));
+    }
+    if p.episode_numbers.len() <= 1 {
+        return Err(ApiError::new("bad_args", "a series needs at least one episode"));
+    }
+    let trashed = p.scenes.iter().filter(|s| s.episode == Some(episode)).count();
+    let dir = root.join("episodes").join(format!("{episode:02}"));
+    let dest = trash_folder(root, &format!("ep{episode:02}"))?;
+    fs::rename(&dir, &dest).map_err(|e| io_err(&dir, e))?;
+    let mut later: Vec<u32> = p.episode_numbers.iter().copied().filter(|e| *e > episode).collect();
+    later.sort();
+    for old in later {
+        let from = root.join("episodes").join(format!("{old:02}"));
+        let to = root.join("episodes").join(format!("{:02}", old - 1));
+        fs::rename(&from, &to).map_err(|e| io_err(&from, e))?;
+        let moved = load(root)?;
+        for a in moved.act_refs.iter().copied().filter(|a| a.episode == Some(old - 1)) {
+            renumber_in_place(root, a)?;
+        }
+    }
+    let yaml = root.join("project.yaml");
+    let text = read_text(&yaml)?;
+    let updated = yaml_remove_episode(&text, episode)?;
+    if updated != text {
+        write_atomic(&yaml, &updated)?;
+    }
+    let mut view = project_view(root)?;
+    view["trashed_scenes"] = json!(trashed);
+    Ok(view)
+}
+
+/// Rewrite the act/episode/scene numbers of every scene in `aref` after its
+/// folder moved, keeping the running order.
+fn renumber_in_place(root: &Path, aref: ActRef) -> Result<(), ApiError> {
+    let p = load(root)?;
+    let ids: Vec<String> = p
+        .scenes
+        .iter()
+        .filter(|s| s.act_ref() == aref)
+        .map(|s| s.scene.meta.id.clone())
+        .collect();
+    reorder_act(root, aref, &ids)
+}
+
+/// Co-writing: remove an act folder that the shared document no longer has,
+/// once it is empty (its scenes were trashed or moved by earlier steps). An
+/// episode left with no acts goes too.
+pub fn act_remove_empty(root: &Path, aref: ActRef) -> ApiResult {
+    let dir = act_dir(root, aref);
+    if dir.is_dir() {
+        let has_scenes = fs::read_dir(&dir)
+            .map_err(|e| io_err(&dir, e))?
+            .filter_map(Result::ok)
+            .any(|e| e.path().extension().and_then(|x| x.to_str()) == Some("scene"));
+        if has_scenes {
+            return Err(ApiError::new(
+                "not_empty",
+                format!("{} still has scenes", rel(root, &dir)),
+            ));
+        }
+        fs::remove_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
+    }
+    if let Some(e) = aref.episode {
+        let acts = root.join("episodes").join(format!("{e:02}")).join("acts");
+        let empty = fs::read_dir(&acts).map(|mut d| d.next().is_none()).unwrap_or(false);
+        if empty {
+            let ep = acts.parent().unwrap();
+            fs::remove_dir_all(ep).map_err(|err| io_err(ep, err))?;
+        }
+    }
+    project_view(root)
+}
+
 const COLLAB_DIR: &str = ".stagewright";
 
 fn collab_dir(root: &Path) -> Result<PathBuf, ApiError> {

@@ -139,6 +139,33 @@ function check(name, ok, detail = "") {
     const fountain = fs.readFileSync(fntPath, "utf8");
     check("Fountain export has a title page and the heading", /^Title: Night Shift/m.test(fountain) && fountain.includes("INT. KITCHEN - NIGHT"), fountain.slice(0, 300));
 
+    // 6. Delete an empty act, then a whole episode
+    await page.click(`nav[aria-label="Views"] >> text=Script`);
+    await page.click('.episode-head[data-episode="2"] .add');
+    await page.waitForSelector('section[aria-label="Episode 2, Act Two"]');
+    check("an act can be added to episode 2", fs.existsSync(path.join(root, "episodes/02/acts/02")));
+    await page.click('[aria-label="Delete episode 2, Act Two"]');
+    await page.click('[data-testid="confirm-delete"]');
+    await page.waitForFunction(() => !document.querySelector('section[aria-label="Episode 2, Act Two"]'));
+    check("an empty act is deleted", !fs.existsSync(path.join(root, "episodes/02/acts/02")));
+    // Episode 1 holds the drafted scene; episode 2 the new one.
+    await page.click('[aria-label="Delete episode 1"]');
+    const ask = await page.locator('[role="alertdialog"]').textContent();
+    check("deleting an episode says what happens", /move its 1 scene to the trash/.test(ask) && /Later episodes move up one/.test(ask), ask);
+    await snap("screen-3-delete-episode.png");
+    await page.click('[data-testid="confirm-delete"]');
+    await page.waitForFunction(() => document.querySelectorAll(".episode-head").length === 1);
+    check("episode 2 became episode 1", fs.existsSync(path.join(root, "episodes/01/acts/01")) && !fs.existsSync(path.join(root, "episodes/02")));
+    const trash = fs.readdirSync(path.join(root, ".trash"));
+    check("the deleted episode is in the trash", trash.length === 1 && /-ep01$/.test(trash[0]) && fs.readdirSync(path.join(root, ".trash", trash[0], "acts/01")).length === 1, trash.join(","));
+    const yaml2 = fs.readFileSync(path.join(root, "project.yaml"), "utf8");
+    check("project.yaml lists one episode, renumbered", /episodes:\n  - \{number: 1, title: "Episode 1"\}\n/.test(yaml2) && !/number: 2/.test(yaml2), yaml2);
+    const left = fs.readdirSync(path.join(root, "episodes/01/acts/01"));
+    check("its scene says episode 1", left.length === 1 && /\nepisode: 1\n/.test(fs.readFileSync(path.join(root, "episodes/01/acts/01", left[0]), "utf8")));
+    await page.waitForFunction(() => (window.__swText?.() ?? "").startsWith("INT. "));
+    check("the editor shows a remaining scene", true);
+    check("the last episode can't be deleted", (await page.locator('[aria-label="Delete episode 1"]').count()) === 0);
+
     check("no browser errors", errors.length === 0, errors.join(" | "));
   } catch (e) {
     console.error(e);

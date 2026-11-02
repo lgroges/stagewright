@@ -167,6 +167,18 @@ pub fn dispatch(ws: &mut Workspace, cmd: &str, args: Value) -> ApiResult {
         }
         "act_create" => ops::act_create(&ws.root()?, arg_opt_u32(&args, "episode")),
         "episode_create" => ops::episode_create(&ws.root()?, arg_opt_str(&args, "title").as_deref()),
+        "act_delete" => ops::act_delete(&ws.root()?, arg_act(&args)?),
+        "episode_delete" => ops::episode_delete(&ws.root()?, arg_u32(&args, "episode")?),
+        "act_remove_empty" => ops::act_remove_empty(&ws.root()?, arg_act(&args)?),
+        // Pure text transforms, for co-writing (which shares project.yaml as text).
+        "yaml_remove_act" => ops::yaml_remove_act(
+            &arg_str(&args, "text")?,
+            arg_u32(&args, "act")?,
+            args.get("series").and_then(Value::as_bool).unwrap_or(false),
+        )
+        .map(|text| serde_json::json!({ "text": text })),
+        "yaml_remove_episode" => ops::yaml_remove_episode(&arg_str(&args, "text")?, arg_u32(&args, "episode")?)
+            .map(|text| serde_json::json!({ "text": text })),
         "stats" => ops::stats(&ws.root()?),
         "file_read" => ops::file_read(&ws.root()?, &arg_str(&args, "name")?),
         "file_save" => ops::file_save(

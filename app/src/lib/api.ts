@@ -230,6 +230,13 @@ export const api = {
     call<ProjectView>("scenes_reorder", { act, ids, episode }),
   actCreate: (episode: number | null = null) => call<ProjectView>("act_create", { episode }),
   episodeCreate: (title?: string) => call<ProjectView>("episode_create", { title }),
+  actDelete: (act: number, episode: number | null = null) =>
+    call<ProjectView & { trashed_scenes: number }>("act_delete", { act, episode }),
+  episodeDelete: (episode: number) => call<ProjectView & { trashed_scenes: number }>("episode_delete", { episode }),
+  actRemoveEmpty: (act: number, episode: number | null = null) => call<ProjectView>("act_remove_empty", { act, episode }),
+  yamlRemoveAct: (text: string, act: number, series: boolean) =>
+    call<{ text: string }>("yaml_remove_act", { text, act, series }),
+  yamlRemoveEpisode: (text: string, episode: number) => call<{ text: string }>("yaml_remove_episode", { text, episode }),
   exportScript: (kind: "pdf" | "fountain", episode: number | null, path?: string) =>
     call<{ name: string; pages: number | null; base64?: string; path?: string }>("export", { kind, episode, path }),
   stats: () => call<Stats>("stats"),

@@ -138,6 +138,26 @@ function check(name, ok, detail = "") {
         ]),
       JSON.stringify(kinds),
     );
+
+    // 3b. Switching to another view and back keeps the editor exactly as it was,
+    // including typing that has not been saved yet.
+    const views = (name) => page.click(`nav[aria-label="Views"] >> text=${name}`);
+    await views("Production");
+    await page.waitForSelector("table.times");
+    await views("Script");
+    check("text is still there after Production → Script", (await page.evaluate(() => window.__swText())) === expected);
+    await page.click(".cm-content");
+    await kb.press("Control+End");
+    await kb.type(" Unsaved.");
+    await views("Production"); // straight away, before the autosave
+    await page.waitForSelector("table.times");
+    await views("Script");
+    check("unsaved typing survives a view switch", (await page.evaluate(() => window.__swText())).endsWith("> BLACKOUT Unsaved."));
+    await page.click(".cm-content");
+    await kb.press("Control+End");
+    for (let i = 0; i < " Unsaved.".length; i++) await kb.press("Backspace");
+    await saved();
+    check("and the file matches the editor", fs.readFileSync(file, "utf8").endsWith(expected), JSON.stringify(fs.readFileSync(file, "utf8").slice(-80)) + " editor: " + JSON.stringify((await page.evaluate(() => window.__swText())).slice(-60)));
     const status = await page.textContent('[data-testid="element"]');
     check("status bar shows the element at the cursor", status === "Transition", status);
 

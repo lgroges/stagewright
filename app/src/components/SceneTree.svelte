@@ -6,6 +6,8 @@
   let dragId = $state<string | null>(null);
   let drop = $state<Drop | null>(null);
   let confirmTrash = $state<string | null>(null);
+  /** An act or episode waiting for "Delete" to be confirmed. */
+  let confirmDelete = $state<{ episode: number | null; act: number | null } | null>(null);
 
   const keyOf = (a: Act) => `${a.episode ?? ""}:${a.number}`;
   const screen = $derived(app.project ? app.project.format !== "stage" : false);
@@ -76,6 +78,20 @@
     if (other) return app.moveScene(s.id, other.number, delta < 0 ? other.scenes.length : 0, other.episode ?? null);
   }
 
+  const sceneCount = (episode: number | null, act: number | null) =>
+    allActs.filter((a) => (a.episode ?? null) === episode && (act === null || a.number === act)).reduce((t, a) => t + a.scenes.length, 0);
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const asking = (episode: number | null, act: number | null) =>
+    confirmDelete !== null && confirmDelete.episode === episode && confirmDelete.act === act;
+
+  async function confirmed() {
+    const c = confirmDelete;
+    confirmDelete = null;
+    if (!c) return;
+    if (c.act === null && c.episode !== null) await app.deleteEpisode(c.episode);
+    else if (c.act !== null) await app.deleteAct(c.act, c.episode);
+  }
+
   async function trash(id: string) {
     if (confirmTrash !== id) {
       confirmTrash = id;
@@ -93,8 +109,31 @@
       <div class="episode-head" data-episode={g.episode}>
         <span class="ep-num">{g.episode}</span>
         <span class="ep-title">{g.title}</span>
-        <button class="ghost add" title="Add an act to this episode" onclick={() => app.createAct(g.episode)}>+ act</button>
+        <span class="tools">
+          {#if groups.length > 1}
+            <button
+              class="ghost del"
+              title="Delete this episode"
+              aria-label="Delete episode {g.episode}"
+              onclick={() => (confirmDelete = { episode: g.episode, act: null })}>🗑</button
+            >
+          {/if}
+          <button class="ghost add" title="Add an act to this episode" onclick={() => app.createAct(g.episode)}>+ act</button>
+        </span>
       </div>
+      {#if asking(g.episode, null)}
+        {@const n = sceneCount(g.episode, null)}
+        <div class="confirm" role="alertdialog" aria-label="Confirm deleting episode {g.episode}">
+          <p>
+            Delete episode {g.episode}, “{g.title}”{n ? `, and move its ${plural(n, "scene")} to the trash` : ""}?
+            {#if g.episode !== null && g.episode < groups.length}Later episodes move up one.{/if}
+          </p>
+          <div class="row">
+            <button class="ghost" onclick={() => (confirmDelete = null)}>Cancel</button>
+            <button class="danger" onclick={confirmed} data-testid="confirm-delete">Delete episode</button>
+          </div>
+        </div>
+      {/if}
     {/if}
     {#each g.acts as act (keyOf(act))}
       <section
@@ -108,12 +147,34 @@
         <div class="act-head">
           <span class="act-title">{act.title}</span>
           <span class="muted small">{screen ? `${actPages(act)} pp` : `${mins(actMinutes(act))} min`}</span>
-          <button
-            class="ghost add"
-            title="Add a scene at the end of {act.title}"
-            onclick={() => app.createScene(act.number, act.scenes.at(-1)?.id ?? null, act.episode ?? null)}>+</button
-          >
+          <span class="tools">
+            {#if g.acts.length > 1}
+              <button
+                class="ghost del"
+                title="Delete {act.title}"
+                aria-label="Delete {g.episode !== null ? `episode ${g.episode}, ` : ""}{act.title}"
+                onclick={() => (confirmDelete = { episode: act.episode ?? null, act: act.number })}>🗑</button
+              >
+            {/if}
+            <button
+              class="ghost add"
+              title="Add a scene at the end of {act.title}"
+              onclick={() => app.createScene(act.number, act.scenes.at(-1)?.id ?? null, act.episode ?? null)}>+</button
+            >
+          </span>
         </div>
+        {#if asking(act.episode ?? null, act.number)}
+          <div class="confirm" role="alertdialog" aria-label="Confirm deleting {act.title}">
+            <p>
+              Delete {act.title}{act.scenes.length ? ` and move its ${plural(act.scenes.length, "scene")} to the trash` : ""}?
+              {#if act.number >= 1 && g.acts.some((a) => a.number > act.number)}Later acts move up one.{/if}
+            </p>
+            <div class="row">
+              <button class="ghost" onclick={() => (confirmDelete = null)}>Cancel</button>
+              <button class="danger" onclick={confirmed} data-testid="confirm-delete">Delete act</button>
+            </div>
+          </div>
+        {/if}
         <ol>
           {#each act.scenes as s, i (s.id)}
             {#if drop && drop.key === keyOf(act) && drop.index === i}<li class="drop-line" aria-hidden="true"></li>{/if}
@@ -237,11 +298,51 @@
     text-transform: uppercase;
     color: var(--ink-2);
   }
-  .add {
+  .tools {
     margin-left: auto;
+    display: flex;
+    align-items: baseline;
+  }
+  .add {
     padding: 0 8px;
     font-size: 16px;
     line-height: 1.2;
+  }
+  .del {
+    padding: 0 6px;
+    font-size: 12px;
+    opacity: 0;
+  }
+  .act-head:hover .del,
+  .act-head:focus-within .del,
+  .episode-head:hover .del,
+  .episode-head:focus-within .del {
+    opacity: 0.7;
+  }
+  .del:hover,
+  .del:focus-visible {
+    opacity: 1 !important;
+  }
+  .confirm {
+    margin: 2px 8px 8px 12px;
+    padding: 8px 10px;
+    border: 1px solid var(--bad);
+    border-radius: var(--radius);
+    background: var(--paper);
+    font-size: 12.5px;
+  }
+  .confirm p {
+    margin: 0 0 6px;
+  }
+  .confirm .row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+  .danger {
+    background: var(--bad);
+    border-color: var(--bad);
+    color: #fff;
   }
   .small {
     font-size: 12px;

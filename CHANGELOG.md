@@ -2,12 +2,22 @@
 
 What changed in each version of Stagewright. The app shows the notes for a new
 version when it offers the update. Add to **Unreleased** as you go;
-`node scripts/release.mjs <version>` dates it.
+`node scripts/release.mjs <version>` dates it. (0.2.2 was never released: its one
+change, the cursor, is listed under 0.3.0.)
 
 ## Unreleased
 
-## 0.2.2 (2026-11-02)
-
+- **Cast** view (next to Production): every character and place, where each appears,
+  and the lists in characters.yaml and locations.yaml, edited in place: name,
+  description, the actor (track) for doubling.
+  - Names in the script but not in the list are flagged; add them in one click, or
+    rename a typo onto the right name.
+  - Rename a character everywhere: cues, songs and mentions in the action, the lists
+    too (dialogue is left as spoken). A preview says what will change first.
+  - Film and TV: places are found in scene headings; renaming one changes every
+    heading that uses it.
+- Character names are suggested in action and stage directions: type the first
+  letters of a name in capitals.
 - The text cursor is easier to see: white and thicker in dark mode (dark on the light
   theme), in the script and in project files.
 

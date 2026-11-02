@@ -15,6 +15,7 @@
     "e2e:cowrite": "node e2e/cowrite.cjs",
     "e2e:screen": "node e2e/screenplay.cjs",
     "e2e:update": "node e2e/update.cjs",
+    "e2e:cast": "node e2e/cast.cjs",
     "relay": "cargo run -q -p stagewright -- relay --data ../.relay-data"
   },
   "dependencies": {

@@ -156,6 +156,71 @@ export interface ProjectFile {
   version: string;
 }
 
+// ---------------------------------------------------------------- cast and places
+
+export type Entry = Record<string, unknown> & { id: string };
+
+export interface CastCharacter {
+  entry: Entry & { cue: string; name?: string; description?: string; track?: string | null };
+  cue: string;
+  /** Scene labels ("1.2", "E1 2.3") the character is in. */
+  scenes: string[];
+  speeches: number;
+  /** Scenes where they are on stage but silent. */
+  silent: number;
+}
+
+export interface UnlistedCharacter {
+  cue: string;
+  scenes: string[];
+  speeches: number;
+  silent: number;
+}
+
+export interface CastPlace {
+  entry: Entry & { name?: string; description?: string };
+  id: string;
+  /** How a scene heading writes it: "THE QUAY". */
+  heading: string;
+  scenes: string[];
+  headings: number;
+}
+
+export interface UnlistedPlace {
+  place: string;
+  /** "heading": from scene headings; "location": an id scenes use that isn't listed. */
+  kind: "heading" | "location";
+  headings: number;
+  scenes: string[];
+}
+
+export interface CastView {
+  screen: boolean;
+  characters: CastCharacter[];
+  unlisted_characters: UnlistedCharacter[];
+  tracks: string[];
+  locations: CastPlace[];
+  unlisted_places: UnlistedPlace[];
+}
+
+export interface RenameResult {
+  applied: boolean;
+  scenes: number;
+  cues: number;
+  songs: number;
+  mentions: number;
+  headings: number;
+  silent: number;
+  files: string[];
+  merge: boolean;
+}
+
+export interface SharedSceneText {
+  id: string;
+  body: string;
+  onstage_silent: string[];
+}
+
 type TauriInternals = { invoke: (cmd: string, args: unknown) => Promise<unknown> };
 
 export const isTauri = (): boolean =>
@@ -230,6 +295,21 @@ export const api = {
     call<ProjectView>("scenes_reorder", { act, ids, episode }),
   actCreate: (episode: number | null = null) => call<ProjectView>("act_create", { episode }),
   episodeCreate: (title?: string) => call<ProjectView>("episode_create", { title }),
+  castView: () => call<CastView>("cast_view"),
+  characterSave: (id: string | null, entry: Record<string, unknown>) =>
+    call<{ cast: CastView; files: Record<string, string> }>("character_save", { id, entry }),
+  characterDelete: (id: string) => call<{ cast: CastView; files: Record<string, string> }>("character_delete", { id }),
+  locationSave: (id: string | null, entry: Record<string, unknown>) =>
+    call<{ cast: CastView; files: Record<string, string> }>("location_save", { id, entry }),
+  locationDelete: (id: string) => call<{ cast: CastView; files: Record<string, string> }>("location_delete", { id }),
+  rename: (kind: "character" | "place", old: string, next: string, apply: boolean) =>
+    call<RenameResult & { cast: CastView }>(kind === "character" ? "character_rename" : "place_rename", { old, new: next, apply }),
+  renameShared: (kind: "character" | "place", old: string, next: string, scenes: SharedSceneText[], files: Record<string, string>) =>
+    call<RenameResult & { changed_scenes: SharedSceneText[]; changed_files: Record<string, string> }>("rename_shared", {
+      kind, old, new: next, scenes, files,
+    }),
+  registryEditText: (file: string, text: string, op: "save" | "delete", id: string | null, entry: Record<string, unknown> = {}) =>
+    call<{ text: string }>("registry_edit_text", { file, text, op, id, entry }),
   actDelete: (act: number, episode: number | null = null) =>
     call<ProjectView & { trashed_scenes: number }>("act_delete", { act, episode }),
   episodeDelete: (episode: number) => call<ProjectView & { trashed_scenes: number }>("episode_delete", { episode }),

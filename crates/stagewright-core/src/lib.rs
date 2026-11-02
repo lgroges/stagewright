@@ -1,6 +1,7 @@
 //! stagewright-core: the `.scene` format, project loading and derived production data.
 
 pub mod analysis;
+pub mod cast;
 pub mod export;
 pub mod frontmatter;
 pub mod layout;

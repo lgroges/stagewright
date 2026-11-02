@@ -4,12 +4,13 @@
 
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
-import { api, ApiError, type CollabConfig, type ProjectView } from "../api";
+import { api, ApiError, type CollabConfig, type ProjectView, type SharedSceneText } from "../api";
 import {
   MODEL_VERSION,
   actKey,
   actOrder,
   addScene,
+  applyText,
   baseFromDisk,
   emptyBase,
   foldExternal,
@@ -325,6 +326,29 @@ export class CollabSession {
     this.doc.transact(() => {
       deleteEpisodeInDoc(this.doc, episode);
       setFile(this.doc, "project.yaml", projectYaml);
+    }, LOCAL);
+  }
+
+  /** Every live scene's text, for a rename across the project. */
+  renameInputs(): { scenes: SharedSceneText[]; files: Record<string, string> } {
+    const st = readDoc(this.doc);
+    return {
+      scenes: st.scenes
+        .filter((s) => !s.trashed)
+        .map((s) => ({ id: s.id, body: s.body, onstage_silent: (s.meta.onstage_silent as string[] | undefined) ?? [] })),
+      files: st.files,
+    };
+  }
+
+  /** Apply a rename worked out over the shared text, for every writer at once. */
+  applyRename(scenes: SharedSceneText[], files: Record<string, string>) {
+    this.doc.transact(() => {
+      for (const s of scenes) {
+        const t = sceneBody(this.doc, s.id);
+        if (t) applyText(t, s.body);
+        setMeta(this.doc, s.id, { onstage_silent: s.onstage_silent });
+      }
+      for (const [name, text] of Object.entries(files)) setFile(this.doc, name, text);
     }, LOCAL);
   }
 

@@ -223,11 +223,41 @@ function headingCompletion(source: CueSource) {
   };
 }
 
-/** Character names on cue lines, places and times on scene headings. */
+/**
+ * Character names in action / stage directions, where they are written in
+ * capitals ("HETTIE crosses to the window"). Starts after two capitals; a name
+ * typed in full closes the list, so Enter still starts a new paragraph.
+ */
+function actionNameCompletion(source: CueSource) {
+  return (ctx: CompletionContext) => {
+    if (kindAt(ctx.state, ctx.pos) !== "direction") return null;
+    const line = ctx.state.doc.lineAt(ctx.pos);
+    const before = line.text.slice(0, ctx.pos - line.from);
+    const m = before.match(/(?:^|[^\p{L}\p{N}_])([A-Z][A-Z0-9'’.-]+)$/u);
+    if (!m) return null;
+    const typed = m[1];
+    const names = [...new Set([...source.cues(), ...docCues(ctx.state, -1)])].filter(Boolean);
+    if (names.includes(typed)) return null;
+    const options = names
+      .filter((n) => n.startsWith(typed))
+      .sort()
+      .map((label) => ({ label, type: "variable" }));
+    if (!options.length) return null;
+    return {
+      from: ctx.pos - typed.length,
+      options,
+      // Keep the list while the typing still could be one of these names.
+      validFor: (text: string) => /^[A-Z0-9'’. -]*$/.test(text) && !names.includes(text) && names.some((n) => n.startsWith(text)),
+    };
+  };
+}
+
+/** Character names on cue lines and in action, places and times on scene headings. */
 function scriptCompletion(source: CueSource) {
   const cue = cueCompletion(source);
   const heading = headingCompletion(source);
-  return (ctx: CompletionContext) => cue(ctx) ?? heading(ctx);
+  const action = actionNameCompletion(source);
+  return (ctx: CompletionContext) => cue(ctx) ?? heading(ctx) ?? action(ctx);
 }
 
 /** Cues already used in this scene, except on `skipLine` (the one being typed). */

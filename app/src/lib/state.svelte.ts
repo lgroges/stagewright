@@ -9,6 +9,7 @@ import {
   isTauri,
   type Format,
   type ProjectView,
+  type RenameResult,
   type SceneDoc,
   type SceneMeta,
   type SceneSummary,
@@ -16,7 +17,7 @@ import {
 import { CollabSession } from "./collab/session.svelte";
 
 export type SaveStatus = "saved" | "unsaved" | "saving" | "conflict" | "error";
-export type MainView = { kind: "script" } | { kind: "production" } | { kind: "file"; name: string };
+export type MainView = { kind: "script" } | { kind: "production" } | { kind: "cast" } | { kind: "file"; name: string };
 
 interface OpenScene {
   id: string;
@@ -503,6 +504,62 @@ class AppState {
   private async openFirstScene() {
     const first = this.allScenes()[0];
     if (first) await this.openScene(first.id);
+  }
+
+  // -------------------------------------------------------------- cast and places
+
+  /**
+   * Add, change or delete a character or place in its list. Returns false if
+   * it failed (the reason is in `error`). Co-writing: the edit is made to the
+   * shared text, so every writer gets it.
+   */
+  async editRegistry(file: "characters.yaml" | "locations.yaml", op: "save" | "delete", id: string | null, entry: Record<string, unknown> = {}): Promise<boolean> {
+    let ok = false;
+    await this.guard(async () => {
+      if (this.collab) {
+        const text = this.collab.fileText(file) ?? "[]\n";
+        const r = await api.registryEditText(file, text, op, id, entry);
+        this.collab.setFile(file, r.text);
+        await this.collab.reconcile();
+      } else if (file === "characters.yaml") {
+        await (op === "save" ? api.characterSave(id, entry) : api.characterDelete(id!));
+      } else {
+        await (op === "save" ? api.locationSave(id, entry) : api.locationDelete(id!));
+      }
+      this.project = await api.projectView();
+      ok = true;
+    });
+    return ok;
+  }
+
+  /**
+   * Rename a character (cues, songs, mentions in action, lists) or a place (in
+   * scene headings and the list) everywhere. `apply` false only previews.
+   */
+  async renameEverywhere(kind: "character" | "place", old: string, next: string, apply: boolean): Promise<RenameResult | null> {
+    await this.flush();
+    if (this.saveStatus === "conflict") return null;
+    let result: RenameResult | null = null;
+    await this.guard(async () => {
+      if (this.collab) {
+        const { scenes, files } = this.collab.renameInputs();
+        const r = await api.renameShared(kind, old, next, scenes, files);
+        if (apply) {
+          this.collab.applyRename(r.changed_scenes, r.changed_files);
+          await this.collab.reconcile();
+        }
+        result = { ...r, applied: apply };
+      } else {
+        result = await api.rename(kind, old, next, apply);
+        if (apply && this.scene) {
+          // The open scene may have changed on disk: load it into the editor.
+          const id = this.scene.id;
+          this.setScene(await api.sceneRead(id), true);
+        }
+      }
+      if (apply) this.project = await api.projectView();
+    });
+    return result;
   }
 
   /** Export the script. Desktop: choose where to save. Browser: download. */

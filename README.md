@@ -85,6 +85,15 @@ Scenes save themselves about a second after you stop typing. If a file is change
 outside the app (another editor, a sync tool), Stagewright stops and asks whether to
 keep your version or load the other one; nothing is overwritten silently.
 
+**Cast** lists every character and place: where each appears, and the lists in
+`characters.yaml` and `locations.yaml`, edited in place (name, description, and for
+characters the actor's track, used by the doubling check). Names used in the script but
+missing from the list are flagged, with one click to add them. **Rename…** changes a
+character everywhere (cues, song singers, mentions in the action, the lists; dialogue
+is left as spoken) or a place in every scene heading, after a preview of what will
+change; renaming onto a name already in the script joins the two (for typos). In action
+and stage directions, typing the first letters of a name in capitals suggests it.
+
 The **Details** panel edits title (renames the file), status, a manual running time
 (overrides the estimate), location, synopsis, who is on stage but silent, ratings,
 tags and notes. **Production** shows running time (and pages) per scene and act, the
@@ -158,6 +167,7 @@ npm run build && npm run e2e        # browser end-to-end test (needs Playwright 
 npm run e2e:cowrite                 # two writers, two folders, one relay
 npm run e2e:screen                  # new TV series, screenplay drafting, export
 npm run e2e:update                  # the update offer, install and restart (Tauri faked)
+npm run e2e:cast                    # Cast view, renames, names suggested in action
 ```
 
 ### Releasing a version

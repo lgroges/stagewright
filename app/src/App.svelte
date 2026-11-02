@@ -6,6 +6,7 @@
   import ScriptEditor from "./components/ScriptEditor.svelte";
   import MetaPanel from "./components/MetaPanel.svelte";
   import ProductionView from "./components/ProductionView.svelte";
+  import CastView from "./components/CastView.svelte";
   import FileEditor from "./components/FileEditor.svelte";
   import ShareDialog from "./components/ShareDialog.svelte";
   import UpdateToast from "./components/UpdateToast.svelte";
@@ -70,6 +71,7 @@
       <nav aria-label="Views">
         <button class="ghost" class:on={app.view.kind === "script"} onclick={() => (app.view = { kind: "script" })}>Script</button>
         <button class="ghost" class:on={app.view.kind === "production"} onclick={() => (app.view = { kind: "production" })}>Production</button>
+        <button class="ghost" class:on={app.view.kind === "cast"} onclick={() => (app.view = { kind: "cast" })}>Cast</button>
         <select
           aria-label="Project files"
           value={app.view.kind === "file" ? app.view.name : ""}
@@ -141,6 +143,8 @@
       {/if}
       {#if app.view.kind === "production"}
         <ProductionView />
+      {:else if app.view.kind === "cast"}
+        <CastView />
       {:else if app.view.kind === "file"}
         {#key app.view.name}<FileEditor name={app.view.name} />{/key}
       {:else if !app.scene}

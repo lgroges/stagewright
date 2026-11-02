@@ -5,6 +5,7 @@
 //! [`ApiError`]. Scenes are addressed by their stable `id`, never by path,
 //! so renames and reorders cannot break references.
 
+mod cast;
 mod ops;
 
 pub use ops::{slugify, version_of};
@@ -89,6 +90,13 @@ fn arg_act(args: &Value) -> Result<stagewright_core::project::ActRef, ApiError> 
     })
 }
 
+fn arg_map(args: &Value, key: &str) -> Result<serde_json::Map<String, Value>, ApiError> {
+    args.get(key)
+        .and_then(Value::as_object)
+        .cloned()
+        .ok_or_else(|| ApiError::new("bad_args", format!("missing object argument '{key}'")))
+}
+
 fn arg_u32(args: &Value, key: &str) -> Result<u32, ApiError> {
     args.get(key)
         .and_then(Value::as_u64)
@@ -167,6 +175,58 @@ pub fn dispatch(ws: &mut Workspace, cmd: &str, args: Value) -> ApiResult {
         }
         "act_create" => ops::act_create(&ws.root()?, arg_opt_u32(&args, "episode")),
         "episode_create" => ops::episode_create(&ws.root()?, arg_opt_str(&args, "title").as_deref()),
+        "cast_view" => cast::cast_view(&ws.root()?),
+        "character_save" => cast::character_save(
+            &ws.root()?,
+            arg_opt_str(&args, "id").as_deref(),
+            &arg_map(&args, "entry")?,
+        ),
+        "character_delete" => cast::character_delete(&ws.root()?, &arg_str(&args, "id")?),
+        "character_rename" => cast::character_rename(
+            &ws.root()?,
+            &arg_str(&args, "old")?,
+            &arg_str(&args, "new")?,
+            args.get("apply").and_then(Value::as_bool).unwrap_or(false),
+        ),
+        "location_save" => cast::location_save(
+            &ws.root()?,
+            arg_opt_str(&args, "id").as_deref(),
+            &arg_map(&args, "entry")?,
+        ),
+        "location_delete" => cast::location_delete(&ws.root()?, &arg_str(&args, "id")?),
+        "place_rename" => cast::place_rename(
+            &ws.root()?,
+            &arg_str(&args, "old")?,
+            &arg_str(&args, "new")?,
+            args.get("apply").and_then(Value::as_bool).unwrap_or(false),
+        ),
+        // Co-writing: pure transforms over the shared text; nothing is written.
+        "rename_shared" => {
+            let scenes: Vec<cast::SceneText> =
+                serde_json::from_value(args.get("scenes").cloned().unwrap_or(Value::Null))
+                    .map_err(|e| ApiError::new("bad_args", format!("scenes: {e}")))?;
+            let files: std::collections::BTreeMap<String, String> =
+                serde_json::from_value(args.get("files").cloned().unwrap_or_else(|| serde_json::json!({})))
+                    .map_err(|e| ApiError::new("bad_args", format!("files: {e}")))?;
+            cast::rename_shared(
+                &arg_str(&args, "kind")?,
+                &arg_str(&args, "old")?,
+                &arg_str(&args, "new")?,
+                &scenes,
+                &files,
+            )
+        }
+        "registry_edit_text" => cast::registry_edit_text(
+            &arg_str(&args, "file")?,
+            &arg_str(&args, "text")?,
+            &arg_str(&args, "op")?,
+            arg_opt_str(&args, "id").as_deref(),
+            &args
+                .get("entry")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default(),
+        ),
         "act_delete" => ops::act_delete(&ws.root()?, arg_act(&args)?),
         "episode_delete" => ops::episode_delete(&ws.root()?, arg_u32(&args, "episode")?),
         "act_remove_empty" => ops::act_remove_empty(&ws.root()?, arg_act(&args)?),

@@ -777,3 +777,260 @@ fn removing_an_empty_act_folder_for_co_writing() {
     assert!(!t.path().join("episodes/02").exists());
     assert!(v["acts"].as_array().unwrap().iter().all(|a| a["episode"] == 1));
 }
+
+// ---------------------------------------------------------------- cast and places
+
+#[test]
+fn cast_view_lists_characters_with_where_they_are() {
+    let (_t, mut ws) = stage_sample();
+    let v = call(&mut ws, "cast_view", json!({}));
+    assert_eq!(v["characters"].as_array().unwrap().len(), 15);
+    let hettie = v["characters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["cue"] == "HETTIE")
+        .unwrap();
+    assert_eq!(hettie["entry"]["track"], "actor-4");
+    assert_eq!(hettie["scenes"], json!(["1.1", "2.1", "2.3", "2.4"]));
+    assert_eq!(hettie["speeches"], 8);
+    let constable = v["characters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["cue"] == "CONSTABLE")
+        .unwrap();
+    assert_eq!(constable["silent"], 1);
+    assert_eq!(v["unlisted_characters"], json!([]));
+    assert!(v["tracks"].as_array().unwrap().contains(&json!("actor-3")));
+}
+
+#[test]
+fn a_cue_only_in_the_script_is_flagged_then_added() {
+    let (t, mut ws) = stage_sample();
+    let r = call(&mut ws, "scene_read", json!({"id": "sc-1-1"}));
+    let body = r["body"]
+        .as_str()
+        .unwrap()
+        .replacen("HETTIE\nTobias, the sign", "HETIE\nTobias, the sign", 1);
+    assert!(body.contains("HETIE\n"));
+    call(
+        &mut ws,
+        "scene_save",
+        json!({"id": "sc-1-1", "body": body, "base_version": r["version"]}),
+    );
+    let v = call(&mut ws, "cast_view", json!({}));
+    assert_eq!(v["unlisted_characters"][0]["cue"], "HETIE");
+    assert_eq!(v["unlisted_characters"][0]["scenes"], json!(["1.1"]));
+
+    let v = call(
+        &mut ws,
+        "character_save",
+        json!({"entry": {"cue": "HETIE", "track": "actor-4"}}),
+    );
+    assert_eq!(v["cast"]["unlisted_characters"], json!([]));
+    let yaml = fs::read_to_string(t.path().join("characters.yaml")).unwrap();
+    assert!(
+        yaml.contains(
+            "- {id: hetie, cue: HETIE, name: Hetie, track: actor-4}\n# ALL is a group cue, not a character.\n"
+        ),
+        "{yaml}"
+    );
+    // The first lines, with their spacing and comments, are untouched.
+    assert!(yaml.contains(
+        "- {id: admiral,    cue: ADMIRAL,    name: \"The Admiral\", track: null}   # not in the doubling plan\n"
+    ));
+    assert_eq!(
+        dispatch(&mut ws, "character_save", json!({"entry": {"cue": "HETIE"}}))
+            .unwrap_err()
+            .code,
+        "bad_value"
+    );
+}
+
+#[test]
+fn editing_a_character_keeps_other_fields_and_refuses_cue_changes() {
+    let (t, mut ws) = stage_sample();
+    call(
+        &mut ws,
+        "character_save",
+        json!({"id": "cornelius", "entry": {"description": "", "track": "actor-5", "name": "Old Cornelius"}}),
+    );
+    let yaml = fs::read_to_string(t.path().join("characters.yaml")).unwrap();
+    assert!(
+        yaml.contains("- {id: cornelius, cue: CORNELIUS, name: Old Cornelius, track: actor-5, sex: male}\n"),
+        "{yaml}"
+    );
+    let e = dispatch(
+        &mut ws,
+        "character_save",
+        json!({"id": "cornelius", "entry": {"cue": "CORNY"}}),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, "bad_value");
+    call(&mut ws, "character_delete", json!({"id": "cornelius"}));
+    let v = call(&mut ws, "cast_view", json!({}));
+    assert_eq!(v["unlisted_characters"][0]["cue"], "CORNELIUS");
+}
+
+#[test]
+fn renaming_a_character_changes_cues_songs_mentions_and_lists() {
+    let (t, mut ws) = stage_sample();
+    let preview = call(&mut ws, "character_rename", json!({"old": "HETTIE", "new": "HARRIET"}));
+    assert_eq!(preview["applied"], false);
+    assert_eq!(preview["scenes"], 4);
+    assert_eq!(preview["merge"], false);
+    let cues = preview["cues"].as_u64().unwrap();
+    assert!(cues >= 7, "{preview}");
+    assert_eq!(preview["songs"], 1);
+    // Nothing written yet.
+    assert!(fs::read_to_string(t.path().join("acts/02/030-the-storm.scene"))
+        .unwrap()
+        .contains("HETTIE & ROSALIND"));
+
+    let done = call(
+        &mut ws,
+        "character_rename",
+        json!({"old": "HETTIE", "new": "HARRIET", "apply": true}),
+    );
+    assert_eq!(done["applied"], true);
+    let storm = fs::read_to_string(t.path().join("acts/02/030-the-storm.scene")).unwrap();
+    assert!(
+        storm.contains("HARRIET & ROSALIND") && !storm.contains("HETTIE"),
+        "{storm}"
+    );
+    let cottage = fs::read_to_string(t.path().join("acts/02/010-hetties-cottage.scene")).unwrap();
+    assert!(cottage.contains("~ SONG \"Lanterns\" [HARRIET]") && cottage.contains("HARRIET’s cottage."));
+    // The title is not a cue or a direction, so it stays.
+    assert!(cottage.contains("title: \"Hettie's cottage\""));
+    let quay = fs::read_to_string(t.path().join("acts/01/010-the-quay.scene")).unwrap();
+    assert!(quay.contains("HARRIET\nTobias, the sign is upside down."));
+    assert!(fs::read_to_string(t.path().join("characters.yaml"))
+        .unwrap()
+        .contains("cue: HARRIET"));
+    assert!(fs::read_to_string(t.path().join("songs.yaml"))
+        .unwrap()
+        .contains("singers: [HARRIET]"));
+    let v = &done["cast"];
+    assert!(v["characters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|c| c["cue"] == "HARRIET" && c["speeches"] == 8));
+    let p = stagewright_core::Project::load(t.path()).unwrap();
+    for sf in &p.scenes {
+        assert_eq!(sf.scene.to_source(), fs::read_to_string(&sf.path).unwrap());
+    }
+}
+
+#[test]
+fn renaming_onto_an_existing_name_merges_a_typo() {
+    let (t, mut ws) = stage_sample();
+    let r = call(&mut ws, "scene_read", json!({"id": "sc-1-1"}));
+    let body = r["body"]
+        .as_str()
+        .unwrap()
+        .replacen("HETTIE\nTobias, the sign", "HETIE\nTobias, the sign", 1);
+    call(
+        &mut ws,
+        "scene_save",
+        json!({"id": "sc-1-1", "body": body, "base_version": r["version"]}),
+    );
+    let preview = call(&mut ws, "character_rename", json!({"old": "HETIE", "new": "HETTIE"}));
+    assert_eq!(preview["merge"], true);
+    assert_eq!(preview["cues"], 1);
+    call(
+        &mut ws,
+        "character_rename",
+        json!({"old": "HETIE", "new": "HETTIE", "apply": true}),
+    );
+    let v = call(&mut ws, "cast_view", json!({}));
+    assert_eq!(v["unlisted_characters"], json!([]));
+    assert!(!fs::read_to_string(t.path().join("acts/01/010-the-quay.scene"))
+        .unwrap()
+        .contains("HETIE"));
+    // Two listed characters can't be merged by renaming.
+    let e = dispatch(&mut ws, "character_rename", json!({"old": "DUKE", "new": "DUCHESS"})).unwrap_err();
+    assert_eq!(e.code, "bad_value");
+    let e = dispatch(&mut ws, "character_rename", json!({"old": "DUKE", "new": "Duke"})).unwrap_err();
+    assert_eq!(e.code, "bad_value");
+}
+
+#[test]
+fn screen_places_come_from_headings_and_can_be_listed_and_renamed() {
+    let (t, mut ws) = fixture("film-sample");
+    let v = call(&mut ws, "cast_view", json!({}));
+    assert_eq!(v["screen"], true);
+    let places: Vec<&str> = v["unlisted_places"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["place"].as_str().unwrap())
+        .collect();
+    assert_eq!(places, vec!["HARBOUR OFFICE", "HARBOUR SLIPWAY", "TIDAL SANDS"]);
+    let v = call(
+        &mut ws,
+        "location_save",
+        json!({"entry": {"name": "Harbour slipway", "description": "Concrete ramp, weed"}}),
+    );
+    let l = &v["cast"]["locations"][0];
+    assert_eq!(
+        (l["id"].as_str(), l["headings"].as_u64()),
+        (Some("harbour-slipway"), Some(1))
+    );
+    assert_eq!(v["cast"]["unlisted_places"].as_array().unwrap().len(), 2);
+
+    let preview = call(
+        &mut ws,
+        "place_rename",
+        json!({"old": "HARBOUR SLIPWAY", "new": "Old slipway"}),
+    );
+    assert_eq!(
+        (preview["headings"].as_u64(), preview["applied"].as_bool()),
+        (Some(1), Some(false))
+    );
+    call(
+        &mut ws,
+        "place_rename",
+        json!({"old": "HARBOUR SLIPWAY", "new": "Old slipway", "apply": true}),
+    );
+    let scene = fs::read_to_string(t.path().join("acts/01/010-the-slipway.scene")).unwrap();
+    assert!(scene.contains("EXT. OLD SLIPWAY - DAWN"), "{scene}");
+    let yaml = fs::read_to_string(t.path().join("locations.yaml")).unwrap();
+    assert_eq!(
+        yaml,
+        "- {id: harbour-slipway, name: Old slipway, description: \"Concrete ramp, weed\"}\n"
+    );
+    call(&mut ws, "location_delete", json!({"id": "harbour-slipway"}));
+    assert_eq!(fs::read_to_string(t.path().join("locations.yaml")).unwrap(), "[]\n");
+}
+
+#[test]
+fn shared_renames_and_edits_are_pure() {
+    let (t, mut ws) = stage_sample();
+    let before = fs::read_to_string(t.path().join("characters.yaml")).unwrap();
+    let v = call(
+        &mut ws,
+        "rename_shared",
+        json!({
+            "kind": "character", "old": "TOBIAS", "new": "TOBY",
+            "scenes": [{"id": "x", "body": "TOBIAS waves.\n\nTOBIAS\nHello, Tobias.\n", "onstage_silent": []},
+                       {"id": "y", "body": "Nobody.\n", "onstage_silent": ["TOBIAS"]}],
+            "files": {"characters.yaml": before}
+        }),
+    );
+    assert_eq!(v["changed_scenes"][0]["body"], "TOBY waves.\n\nTOBY\nHello, Tobias.\n");
+    assert_eq!(v["changed_scenes"][1]["onstage_silent"], json!(["TOBY"]));
+    assert!(v["changed_files"]["characters.yaml"]
+        .as_str()
+        .unwrap()
+        .contains("cue: TOBY"));
+    let e = call(
+        &mut ws,
+        "registry_edit_text",
+        json!({"file": "locations.yaml", "text": "[]\n", "op": "save", "entry": {"name": "The quay"}}),
+    );
+    assert_eq!(e["text"], "- {id: the-quay, name: The quay}\n");
+    // Disk untouched.
+    assert_eq!(fs::read_to_string(t.path().join("characters.yaml")).unwrap(), before);
+}

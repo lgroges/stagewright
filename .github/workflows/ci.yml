@@ -52,6 +52,7 @@ jobs:
           npm run e2e:cowrite
           npm run e2e:screen
           npm run e2e:update
+          npm run e2e:cast
 
   desktop:
     # Test builds of the installers as downloadable artifacts: Windows (.msi and

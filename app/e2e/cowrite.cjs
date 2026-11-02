@@ -257,6 +257,22 @@ function sceneFile(root, id) {
     await until(() => fs.readFileSync(sceneFile(dirB, "sc-1-2"), "utf8").includes("Edited in another program."), 12000, "the outside edit to reach B");
     check("an edit made outside the app reaches the other writer", true);
 
+    // ---- A renames a character in the Cast view; B's folder follows
+    await A.click(`nav[aria-label="Views"] >> text=Cast`);
+    await A.click('[aria-label="Rename CORNELIUS"]');
+    await A.fill('[data-testid="rename-to"]', "CORNELIA");
+    await A.click('[data-testid="rename-preview-btn"]');
+    await A.click('[data-testid="rename-apply"]');
+    await until(
+      () =>
+        fs.readFileSync(path.join(dirB, "characters.yaml"), "utf8").includes("cue: CORNELIA") &&
+        /\nCORNELIA\n/.test(fs.readFileSync(sceneFile(dirB, "sc-2-1"), "utf8")),
+      12000,
+      "the rename to reach B",
+    );
+    check("a rename while co-writing reaches the other writer", !/\bCORNELIUS\b/.test(fs.readFileSync(sceneFile(dirB, "sc-2-1"), "utf8")));
+    await A.click(`nav[aria-label="Views"] >> text=Script`);
+
     // ---- Settled: both folders identical
     await until(() => diff(folderState(dirA), folderState(dirB)).length === 0, 10000, "folders to settle");
     check("both folders end identical", true);

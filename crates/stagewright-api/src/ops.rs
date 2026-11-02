@@ -76,7 +76,7 @@ pub fn slugify(s: &str) -> String {
     }
 }
 
-fn io_err(path: &Path, e: std::io::Error) -> ApiError {
+pub(crate) fn io_err(path: &Path, e: std::io::Error) -> ApiError {
     ApiError::new("io", format!("{}: {e}", path.display()))
 }
 
@@ -84,19 +84,19 @@ fn project_err(e: ProjectError) -> ApiError {
     ApiError::new("project", e.to_string())
 }
 
-fn read_text(path: &Path) -> Result<String, ApiError> {
+pub(crate) fn read_text(path: &Path) -> Result<String, ApiError> {
     fs::read_to_string(path)
         .map(|s| s.replace("\r\n", "\n"))
         .map_err(|e| io_err(path, e))
 }
 
-fn write_atomic(path: &Path, text: &str) -> Result<(), ApiError> {
+pub(crate) fn write_atomic(path: &Path, text: &str) -> Result<(), ApiError> {
     let tmp = path.with_extension("stagewright-tmp");
     fs::write(&tmp, text).map_err(|e| io_err(&tmp, e))?;
     fs::rename(&tmp, path).map_err(|e| io_err(path, e))
 }
 
-fn load(root: &Path) -> Result<Project, ApiError> {
+pub(crate) fn load(root: &Path) -> Result<Project, ApiError> {
     Project::load(root).map_err(project_err)
 }
 
@@ -129,7 +129,7 @@ fn episode_title(p: &Project, e: u32) -> String {
 }
 
 /// `P`, `2.3`, or in a series `E1 2.3`.
-fn scene_label(sf: &stagewright_core::project::SceneFile) -> String {
+pub(crate) fn scene_label(sf: &stagewright_core::project::SceneFile) -> String {
     let base = match (sf.act, sf.scene.meta.scene) {
         (0, Some(n)) if n > 0 => format!("0.{n}"),
         (0, _) => "P".to_string(),
@@ -175,7 +175,10 @@ fn rel(root: &Path, path: &Path) -> String {
         .replace('\\', "/")
 }
 
-fn find_scene<'a>(project: &'a Project, id: &str) -> Result<&'a stagewright_core::project::SceneFile, ApiError> {
+pub(crate) fn find_scene<'a>(
+    project: &'a Project,
+    id: &str,
+) -> Result<&'a stagewright_core::project::SceneFile, ApiError> {
     project
         .scene(id)
         .ok_or_else(|| ApiError::new("not_found", format!("no scene with id '{id}'")))
@@ -197,7 +200,7 @@ fn validated(source: &str) -> Result<Scene, ApiError> {
     Scene::parse(source).map_err(|e| ApiError::new("invalid_scene", e.to_string()))
 }
 
-fn set_meta_keys(source: &str, pairs: &[(&str, Value)]) -> Result<String, ApiError> {
+pub(crate) fn set_meta_keys(source: &str, pairs: &[(&str, Value)]) -> Result<String, ApiError> {
     let mut scene = validated(source)?;
     for (k, v) in pairs {
         scene.frontmatter = set_key(&scene.frontmatter, k, v);
@@ -634,7 +637,7 @@ pub fn stats(root: &Path) -> ApiResult {
     }))
 }
 
-fn project_file(root: &Path, name: &str) -> Result<PathBuf, ApiError> {
+pub(crate) fn project_file(root: &Path, name: &str) -> Result<PathBuf, ApiError> {
     if !PROJECT_FILES.contains(&name) {
         return Err(ApiError::new("bad_args", format!("'{name}' is not a project file")));
     }

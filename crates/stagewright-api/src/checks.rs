@@ -109,3 +109,33 @@ pub fn set_check(root: &Path, code: &str, on: bool) -> ApiResult {
     v["files"] = json!({ "project.yaml": updated });
     Ok(v)
 }
+
+// ---------------------------------------------------------------- project options
+
+/// Options the app may set in project.yaml.
+const OPTIONS: &[&str] = &["auto_contd"];
+
+/// project.yaml with option `name` set (`null` removes it, back to the default).
+pub fn yaml_set_option(text: &str, name: &str, value: &Value) -> Result<String, ApiError> {
+    if !OPTIONS.contains(&name) {
+        return Err(ApiError::new("bad_args", format!("'{name}' is not a project option")));
+    }
+    let updated = if value.is_null() {
+        let removed = set_key(text, name, &Value::Null);
+        removed.replace(&format!("{name}: null\n"), "")
+    } else {
+        set_key(text, name, value)
+    };
+    serde_yaml::from_str::<ProjectMeta>(&updated).map_err(|e| ApiError::new("invalid_yaml", e.to_string()))?;
+    Ok(updated)
+}
+
+pub fn set_option(root: &Path, name: &str, value: &Value) -> ApiResult {
+    let path = root.join("project.yaml");
+    let text = read_text(&path)?;
+    let updated = yaml_set_option(&text, name, value)?;
+    write_atomic(&path, &updated)?;
+    let mut v = crate::ops::project_view(root)?;
+    v["files"] = json!({ "project.yaml": updated });
+    Ok(v)
+}

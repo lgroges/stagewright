@@ -176,6 +176,17 @@ pub fn dispatch(ws: &mut Workspace, cmd: &str, args: Value) -> ApiResult {
         }
         "act_create" => ops::act_create(&ws.root()?, arg_opt_u32(&args, "episode")),
         "episode_create" => ops::episode_create(&ws.root()?, arg_opt_str(&args, "title").as_deref()),
+        "set_option" => checks::set_option(
+            &ws.root()?,
+            &arg_str(&args, "name")?,
+            args.get("value").unwrap_or(&Value::Null),
+        ),
+        "yaml_set_option" => checks::yaml_set_option(
+            &arg_str(&args, "text")?,
+            &arg_str(&args, "name")?,
+            args.get("value").unwrap_or(&Value::Null),
+        )
+        .map(|text| serde_json::json!({ "text": text })),
         "check_project" => checks::check_project(&ws.root()?),
         "check_scene" => checks::check_one(&ws.root()?, &arg_str(&args, "id")?, &arg_str(&args, "body")?),
         "set_check" => checks::set_check(

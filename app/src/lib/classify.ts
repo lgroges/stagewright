@@ -160,3 +160,31 @@ export function liveStats(lines: readonly string[], kinds: readonly Kind[]): Liv
   }
   return { words, lyricLines, speakers };
 }
+
+/**
+ * Lines whose cue should read (CONT'D): the same character(s) as the speech
+ * before, with only action between, in the same scene. Mirrors
+ * `continued_cues` in crates/stagewright-core/src/scene.rs.
+ */
+export function continuedCues(lines: readonly string[], kinds: readonly Kind[]): Set<number> {
+  const out = new Set<number>();
+  let last: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const k = kinds[i];
+    if (k === "cue") {
+      let t = lines[i].replace(/^@/, "").trimEnd();
+      const dual = t.endsWith("^");
+      if (dual) t = t.slice(0, -1).trimEnd();
+      const [name, ext] = stripExtension(t);
+      const speakers = name.split("&").map((s) => s.trim()).filter(Boolean);
+      const group = speakers.every((s) => s === "ALL");
+      const marked = ext !== null && /CONT'?D/.test(ext.toUpperCase().replace(/’/g, "'"));
+      const same = speakers.length === last.length && speakers.every((s, j) => s === last[j]);
+      if (!dual && !group && !marked && last.length > 0 && same) out.add(i);
+      last = speakers;
+    } else if (k === "scene_heading" || k === "transition" || k === "centered" || k === "page_break") {
+      last = [];
+    }
+  }
+  return out;
+}

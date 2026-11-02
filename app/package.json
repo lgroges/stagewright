@@ -17,6 +17,7 @@
     "e2e:update": "node e2e/update.cjs",
     "e2e:cast": "node e2e/cast.cjs",
     "e2e:check": "node e2e/check.cjs",
+    "e2e:layout": "node e2e/layout.cjs",
     "relay": "cargo run -q -p stagewright -- relay --data ../.relay-data"
   },
   "dependencies": {

@@ -67,9 +67,20 @@ pub struct ProjectMeta {
     /// Shown on title pages, e.g. "Draft 9 (May 2024)".
     #[serde(default)]
     pub draft: Option<String>,
+    /// Add (CONT'D) automatically when a character speaks again after action.
+    /// Unset: on for film and TV, off for stage plays.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_contd: Option<bool>,
     /// Script check settings, e.g. `checks: {off: [contd-mismatch]}`.
     #[serde(default)]
     pub checks: ChecksConfig,
+}
+
+impl ProjectMeta {
+    /// Whether (CONT'D) is added automatically in this project.
+    pub fn auto_contd(&self) -> bool {
+        self.auto_contd.unwrap_or(self.format.is_screen())
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]

@@ -34,10 +34,19 @@
     updates.start();
     // Save before the window goes away.
     const onHide = () => void app.flush();
+    // Ctrl+\ (Cmd+\ on a Mac) shows or hides the scene list.
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "\\" && app.project) {
+        e.preventDefault();
+        app.toggleTree();
+      }
+    };
+    window.addEventListener("keydown", onKey);
     window.addEventListener("beforeunload", onHide);
     document.addEventListener("visibilitychange", onHide);
     return () => {
       window.removeEventListener("beforeunload", onHide);
+      window.removeEventListener("keydown", onKey);
       document.removeEventListener("visibilitychange", onHide);
     };
   });
@@ -62,8 +71,21 @@
 {:else if !app.project}
   <Welcome />
 {:else}
-  <div class="shell" class:no-meta={!app.metaOpen || app.view.kind !== "script" || !app.scene}>
+  <div class="shell" class:no-meta={!app.metaOpen || app.view.kind !== "script" || !app.scene} class:no-tree={!app.treeOpen}>
     <header>
+      <button
+        class="ghost tree-toggle"
+        onclick={() => app.toggleTree()}
+        title={app.treeOpen ? "Hide the scene list (Ctrl+\\)" : "Show the scene list (Ctrl+\\)"}
+        aria-label={app.treeOpen ? "Hide the scene list" : "Show the scene list"}
+        aria-pressed={app.treeOpen}
+        data-testid="tree-toggle"
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+          <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor" />
+          <rect x="2" y="3" width="4" height="10" fill="currentColor" opacity={app.treeOpen ? 0.55 : 0.12} />
+        </svg>
+      </button>
       <div class="title">
         <strong>{app.project.title}</strong>
         {#if app.project.authors.length}<span class="muted">· {app.project.authors.join(" & ")}</span>{/if}
@@ -118,6 +140,15 @@
               {/if}
               <button class="ghost" role="menuitem" onclick={() => doExport("pdf")}>PDF ({app.project.format_label})</button>
               <button class="ghost" role="menuitem" onclick={() => doExport("fountain")}>Fountain (.fountain)</button>
+              <label class="opt" title="When a character speaks again after action, in the same scene. Shown faintly in the editor; printed in exports.">
+                <input
+                  type="checkbox"
+                  checked={app.project.auto_contd}
+                  onchange={(e) => app.setOption("auto_contd", e.currentTarget.checked)}
+                  data-testid="auto-contd"
+                />
+                Add (CONT'D) automatically
+              </label>
             </div>
           {/if}
         </div>
@@ -133,7 +164,7 @@
       </div>
     {/if}
 
-    <aside class="tree"><SceneTree /></aside>
+    {#if app.treeOpen}<aside class="tree"><SceneTree /></aside>{/if}
 
     <main>
       <!-- The script editor stays alive behind other views, so switching back
@@ -181,6 +212,19 @@
   }
   .shell.no-meta {
     grid-template-columns: 264px minmax(0, 1fr) 0;
+  }
+  .shell.no-tree {
+    grid-template-columns: 0 minmax(0, 1fr) 300px;
+  }
+  .shell.no-tree.no-meta {
+    grid-template-columns: 0 minmax(0, 1fr) 0;
+  }
+  .tree-toggle {
+    padding: 4px 6px;
+    margin-left: -8px;
+    display: flex;
+    align-items: center;
+    color: var(--ink-2);
   }
   header {
     grid-area: head;
@@ -247,6 +291,16 @@
   }
   .menu button {
     text-align: left;
+  }
+  .menu .opt {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 6px 4px;
+    margin-top: 4px;
+    border-top: 1px solid var(--line);
+    font-size: 12.5px;
+    color: var(--ink-2);
   }
   .menu .ep {
     display: grid;

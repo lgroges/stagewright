@@ -1,7 +1,7 @@
 // CodeMirror extensions for the script editor: stage-play layout, element
 // keys, cue autocompletion and upper-casing.
 
-import { EditorState, Prec, RangeSetBuilder, type Extension } from "@codemirror/state";
+import { EditorState, Prec, RangeSetBuilder, StateEffect, type Extension } from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -38,7 +38,7 @@ import {
   toElement,
   type ElementType,
 } from "./script";
-import { isHeadingText, type Kind } from "../classify";
+import { continuedCues, isHeadingText, type Kind } from "../classify";
 import { lintKeymap } from "@codemirror/lint";
 import { countIssues, scriptCheck, type CheckSource } from "./check";
 import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
@@ -74,6 +74,58 @@ class HintWidget extends WidgetType {
   }
 }
 const cueHint = Decoration.widget({ widget: new HintWidget("Character name…"), side: 1 });
+
+/** The automatic (CONT'D), shown after a cue (it isn't in the text). */
+class ContdWidget extends WidgetType {
+  eq() {
+    return true;
+  }
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = "sw-contd";
+    el.textContent = " (CONT'D)";
+    el.title = "Added automatically: the same character spoke just before. It prints in the PDF. (Switch off under Export.)";
+    return el;
+  }
+  ignoreEvent() {
+    return false;
+  }
+}
+const contdDeco = Decoration.widget({ widget: new ContdWidget(), side: 1 });
+
+/** Dispatch when the project's (CONT'D) setting changes. */
+export const refreshContd = StateEffect.define<null>();
+
+function contdLabels(on: () => boolean) {
+  const build = (view: EditorView): DecorationSet => {
+    if (!on()) return Decoration.none;
+    const doc = view.state.doc;
+    const lines = doc.toString().split("\n");
+    const b = new RangeSetBuilder<Decoration>();
+    for (const i of [...continuedCues(lines, info(view.state).kinds)].sort((x, y) => x - y)) {
+      if (i < doc.lines) b.add(doc.line(i + 1).to, doc.line(i + 1).to, contdDeco);
+    }
+    return b.finish();
+  };
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) {
+        this.decorations = build(view);
+      }
+      update(u: ViewUpdate) {
+        if (
+          u.docChanged ||
+          u.startState.field(scriptField) !== u.state.field(scriptField) ||
+          u.transactions.some((t) => t.effects.some((e) => e.is(refreshContd)))
+        ) {
+          this.decorations = build(u.view);
+        }
+      }
+    },
+    { decorations: (v) => v.decorations },
+  );
+}
 const markerDeco = Decoration.mark({ class: "sw-marker" });
 const emphasisDeco = Decoration.mark({ class: "sw-em" });
 const EMPHASIS = /\*([^*\n]+)\*/g;
@@ -464,6 +516,7 @@ const theme = EditorView.theme({
   ".sw-direction": { fontStyle: "italic", color: "var(--ink-2)" },
   ".sw-cue": { textAlign: "center", fontWeight: "700", letterSpacing: "0.04em", paddingTop: "0.35em" },
   ".sw-pending": { color: "var(--accent)" },
+  ".sw-contd": { color: "var(--ink-3)", fontWeight: "400", letterSpacing: "0", cursor: "default" },
   ".sw-hint": { opacity: "0.45", fontWeight: "400", letterSpacing: "0", pointerEvents: "none" },
   ".sw-parenthetical": { textAlign: "center", fontStyle: "italic", color: "var(--ink-2)" },
   ".sw-dialogue": { paddingLeft: "12%", paddingRight: "12%" },
@@ -507,6 +560,8 @@ export function scriptExtensions(opts: {
   check?: CheckSource;
   /** Called when the number of issues shown changes. */
   onIssues?: (counts: { warnings: number; infos: number }) => void;
+  /** Show (CONT'D) after cues that continue the previous speech. */
+  autoContd?: () => boolean;
 }): Extension[] {
   const shared = opts.shared;
   return [
@@ -545,5 +600,6 @@ export function scriptExtensions(opts: {
       if (opts.onIssues && u.transactions.some((t) => t.effects.length)) opts.onIssues(countIssues(u.state));
     }),
     opts.check ? [scriptCheck(opts.check), keymap.of(lintKeymap), checkTheme] : [],
+    opts.autoContd ? contdLabels(opts.autoContd) : [],
   ];
 }

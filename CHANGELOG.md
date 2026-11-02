@@ -23,6 +23,13 @@ change, the cursor, is listed under 0.3.0.)
     and a character's first appearance in the action not in capitals.
   - Any check can be switched off for a project ("Don't check for this", or Checks…
     in Production); the setting is kept in project.yaml.
+- **(CONT'D) added automatically** when a character speaks again after only action,
+  in the same scene: shown faintly after the cue (it isn't typed into your text, so it
+  stays right as you edit) and printed in PDF and Fountain exports. On for film and
+  TV, off for stage plays; switch it under Export.
+- **The scene list can be hidden** (the button at the top left, or Ctrl+\) for a wider
+  page, and episodes and acts can be folded (the ▾ by their names; Fold all /
+  Unfold all at the bottom). Both are remembered; the open scene's act always shows.
 
 ## 0.3.0 (2026-11-02)
 

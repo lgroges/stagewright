@@ -172,7 +172,8 @@ fn title_page(p: &Project, prof: &Profile, episode: Option<u32>) -> Page {
 
 /// The script as pages (title page first).
 pub fn pages(p: &Project, episode: Option<u32>) -> (Profile, Vec<Page>) {
-    let prof = Profile::for_format(p.meta.format);
+    let mut prof = Profile::for_format(p.meta.format);
+    prof.auto_contd = p.meta.auto_contd();
     let mut out = vec![title_page(p, &prof, episode)];
     out.extend(paginate(&script_blocks(p, &prof, episode), &prof));
     (prof, out)
@@ -220,7 +221,15 @@ pub fn fountain(p: &Project, episode: Option<u32>) -> String {
             if let Some(t) = &sf.scene.meta.title {
                 out.push_str(&format!("## {t}\n\n"));
             }
-            let body = serialize_body(&sf.scene.body);
+            let mut body_els = sf.scene.body.clone();
+            if p.meta.auto_contd() {
+                for i in crate::scene::continued_cues(&body_els) {
+                    if let Element::Cue(c) = &mut body_els[i] {
+                        c.raw = format!("{} (CONT'D)", c.raw.trim_end());
+                    }
+                }
+            }
+            let body = serialize_body(&body_els);
             out.push_str(body.trim_end_matches('\n'));
             out.push_str("\n\n");
         }

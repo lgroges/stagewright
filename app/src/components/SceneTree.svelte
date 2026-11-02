@@ -33,6 +33,24 @@
   });
   const allActs = $derived(groups.flatMap((g) => g.acts));
 
+  // ------------------------------------------------------------ folding
+  const epKey = (e: number | null) => `e:${e}`;
+  const actKey = (a: Act) => `a:${a.episode ?? ""}:${a.number}`;
+  const isFolded = (k: string) => app.folded.has(k);
+  const toggle = (k: string) => app.setFolded([k], !isFolded(k));
+  const allKeys = $derived([...groups.filter((g) => g.episode !== null).map((g) => epKey(g.episode)), ...allActs.map(actKey)]);
+  const anyFolded = $derived(allKeys.some((k) => isFolded(k)));
+
+  // The open scene is always visible: unfold its act and episode.
+  $effect(() => {
+    const id = app.scene?.id;
+    if (!id) return;
+    const act = allActs.find((a) => a.scenes.some((s) => s.id === id));
+    if (!act) return;
+    const keys = [actKey(act), ...(act.episode != null ? [epKey(act.episode)] : [])].filter((k) => app.folded.has(k));
+    if (keys.length) app.setFolded(keys, false);
+  });
+
   function onDragStart(e: DragEvent, id: string) {
     dragId = id;
     e.dataTransfer?.setData("text/plain", id);
@@ -107,6 +125,13 @@
   {#each groups as g (g.episode ?? "all")}
     {#if g.episode !== null}
       <div class="episode-head" data-episode={g.episode}>
+        <button
+          class="ghost fold"
+          class:folded={isFolded(epKey(g.episode))}
+          onclick={() => toggle(epKey(g.episode))}
+          aria-expanded={!isFolded(epKey(g.episode))}
+          aria-label="{isFolded(epKey(g.episode)) ? 'Show' : 'Hide'} episode {g.episode}"
+        >▾</button>
         <span class="ep-num">{g.episode}</span>
         <span class="ep-title">{g.title}</span>
         <span class="tools">
@@ -135,6 +160,11 @@
         </div>
       {/if}
     {/if}
+    {#if g.episode !== null && isFolded(epKey(g.episode))}
+      <p class="folded-note muted small">
+        {g.acts.length} {g.acts.length === 1 ? "act" : "acts"} · {g.acts.reduce((t, a) => t + a.scenes.length, 0)} scenes
+      </p>
+    {:else}
     {#each g.acts as act (keyOf(act))}
       <section
         class="act"
@@ -145,7 +175,15 @@
         ondrop={onDrop}
       >
         <div class="act-head">
+          <button
+            class="ghost fold"
+            class:folded={isFolded(actKey(act))}
+            onclick={() => toggle(actKey(act))}
+            aria-expanded={!isFolded(actKey(act))}
+            aria-label="{isFolded(actKey(act)) ? 'Show' : 'Hide'} the scenes of {g.episode !== null ? `episode ${g.episode}, ` : ''}{act.title}"
+          >▾</button>
           <span class="act-title">{act.title}</span>
+          {#if isFolded(actKey(act))}<span class="muted small">· {act.scenes.length}</span>{/if}
           <span class="muted small">{screen ? `${actPages(act)} pp` : `${mins(actMinutes(act))} min`}</span>
           <span class="tools">
             {#if g.acts.length > 1}
@@ -175,7 +213,7 @@
             </div>
           </div>
         {/if}
-        <ol>
+        <ol class:hidden={isFolded(actKey(act))}>
           {#each act.scenes as s, i (s.id)}
             {#if drop && drop.key === keyOf(act) && drop.index === i}<li class="drop-line" aria-hidden="true"></li>{/if}
             <li
@@ -236,8 +274,14 @@
         </ol>
       </section>
     {/each}
+    {/if}
   {/each}
   <div class="foot">
+    {#if allKeys.length > 1}
+      <button class="ghost small fold-all" onclick={() => app.setFolded(allKeys, !anyFolded)}>
+        {anyFolded ? "Unfold all" : "Fold all"}
+      </button>
+    {/if}
     {#if app.project?.series}
       <button class="ghost" onclick={() => app.createEpisode()}>+ Add episode</button>
     {:else}
@@ -284,6 +328,26 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .fold {
+    padding: 0 2px;
+    width: 18px;
+    font-size: 11px;
+    color: var(--ink-3);
+    transition: transform 0.12s;
+    margin-left: -6px;
+  }
+  .fold.folded {
+    transform: rotate(-90deg);
+  }
+  ol.hidden {
+    display: none;
+  }
+  .folded-note {
+    margin: 0 0 6px 36px;
+  }
+  .fold-all {
+    font-size: 12px;
   }
   .act-head {
     display: flex;

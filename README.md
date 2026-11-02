@@ -96,6 +96,14 @@ and stage directions, typing the first letters of a name in capitals suggests it
 and TV, camera directions (CLOSE ON, POV, PUSH IN …) and, at the start of a line,
 transitions (CUT TO:, FADE OUT. …) are suggested the same way.
 
+**(CONT'D)** is added automatically when a character speaks again after only action in
+the same scene: shown faintly in the editor (not typed into the text) and printed in
+exports. It's on for film and TV and off for stage plays; switch it under **Export**
+(`auto_contd` in project.yaml).
+
+The scene list can be hidden (top-left button, or Ctrl+\) and its episodes and acts
+folded (▾); both are remembered.
+
 **Script check.** As you write, likely mistakes are underlined with a wavy line (a cue
 with a blank line after it, so the speech reads as action; a cue not in capitals or not
 in the cast list, with "did you mean…?"; a song never closed; a parenthetical missing its

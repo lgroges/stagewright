@@ -8,6 +8,7 @@
   import { liveStats } from "../lib/classify";
   import { openLintPanel } from "@codemirror/lint";
   import { recheck } from "../lib/editor/check";
+  import { refreshContd } from "../lib/editor/setup";
   import { api } from "../lib/api";
 
   let host: HTMLDivElement;
@@ -67,6 +68,7 @@
           },
           off: (code) => void app.setCheck(code, false),
         },
+        autoContd: () => app.project?.auto_contd ?? false,
         onIssues: (n) => {
           if (n.warnings !== issues.warnings || n.infos !== issues.infos) issues = n;
         },
@@ -128,6 +130,12 @@
     void app.checksVersion;
     void app.project?.cues;
     if (view) view.dispatch({ effects: recheck.of(null) });
+  });
+
+  // Show or hide the automatic (CONT'D) when the setting changes.
+  $effect(() => {
+    void app.project?.auto_contd;
+    if (view) view.dispatch({ effects: refreshContd.of(null) });
   });
 
   /** Go to a line asked for elsewhere (the Production issue list). */

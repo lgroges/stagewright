@@ -273,6 +273,7 @@ pub fn project_view(root: &Path) -> ApiResult {
         "statuses": STATUSES,
         "format": p.meta.format,
         "format_label": p.meta.format.label(),
+        "auto_contd": p.meta.auto_contd(),
         "series": p.series,
         "episodes": episodes,
         "acts": acts,

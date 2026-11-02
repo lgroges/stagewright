@@ -54,6 +54,7 @@ jobs:
           npm run e2e:update
           npm run e2e:cast
           npm run e2e:check
+          npm run e2e:layout
 
   desktop:
     # Test builds of the installers as downloadable artifacts: Windows (.msi and

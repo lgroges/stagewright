@@ -71,6 +71,8 @@ export interface ProjectView {
   statuses: string[];
   format: Format;
   format_label: string;
+  /** (CONT'D) added automatically (project.yaml auto_contd, or the format's default). */
+  auto_contd: boolean;
   series: boolean;
   episodes: { number: number; title: string }[];
   heading_locations: string[];
@@ -319,6 +321,8 @@ export const api = {
     call<ProjectView>("scenes_reorder", { act, ids, episode }),
   actCreate: (episode: number | null = null) => call<ProjectView>("act_create", { episode }),
   episodeCreate: (title?: string) => call<ProjectView>("episode_create", { title }),
+  setOption: (name: string, value: unknown) => call<ProjectView>("set_option", { name, value }),
+  yamlSetOption: (text: string, name: string, value: unknown) => call<{ text: string }>("yaml_set_option", { text, name, value }),
   checkScene: (id: string, body: string) => call<{ issues: Issue[] }>("check_scene", { id, body }),
   checkProject: () => call<ProjectCheck>("check_project"),
   setCheck: (code: string, on: boolean) => call<ProjectCheck>("set_check", { code, on }),

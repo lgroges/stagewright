@@ -1034,3 +1034,32 @@ fn shared_renames_and_edits_are_pure() {
     // Disk untouched.
     assert_eq!(fs::read_to_string(t.path().join("characters.yaml")).unwrap(), before);
 }
+
+#[test]
+fn auto_contd_defaults_by_format_and_can_be_set() {
+    let (t, mut ws) = fixture("film-sample");
+    assert_eq!(call(&mut ws, "project_view", json!({}))["auto_contd"], true);
+    let v = call(&mut ws, "set_option", json!({"name": "auto_contd", "value": false}));
+    assert_eq!(v["auto_contd"], false);
+    assert!(fs::read_to_string(t.path().join("project.yaml"))
+        .unwrap()
+        .contains("auto_contd: false\n"));
+    let v = call(&mut ws, "set_option", json!({"name": "auto_contd", "value": null}));
+    assert_eq!(v["auto_contd"], true);
+    assert!(!fs::read_to_string(t.path().join("project.yaml"))
+        .unwrap()
+        .contains("auto_contd"));
+    let (_s, mut stage) = stage_sample();
+    assert_eq!(call(&mut stage, "project_view", json!({}))["auto_contd"], false);
+    assert_eq!(
+        dispatch(&mut stage, "set_option", json!({"name": "title", "value": "x"}))
+            .unwrap_err()
+            .code,
+        "bad_args"
+    );
+    // Fountain export spells it out where it applies.
+    call(&mut ws, "set_option", json!({"name": "auto_contd", "value": true}));
+    let p = stagewright_core::Project::load(t.path()).unwrap();
+    let f = stagewright_core::export::fountain(&p, None);
+    assert!(!f.contains("(CONT'D) (CONT'D)"), "{f}");
+}

@@ -416,6 +416,36 @@ pub fn parse_body(src: &str) -> Vec<Element> {
     out
 }
 
+/// Indices of the cues that should read `(CONT'D)`: the same character (or
+/// characters) as the speech before, with only action in between, in the same
+/// scene. A scene heading, transition, centred text or page break starts afresh.
+/// Dual dialogue, group cues (ALL) and cues already marked CONT'D are left alone.
+pub fn continued_cues(body: &[Element]) -> Vec<usize> {
+    let mut out = Vec::new();
+    let mut last: Vec<&str> = Vec::new();
+    for (i, el) in body.iter().enumerate() {
+        match el {
+            Element::Cue(c) => {
+                let speakers: Vec<&str> = c.speakers();
+                let group = speakers.iter().all(|s| *s == "ALL");
+                let marked = c.extension.as_deref().is_some_and(|e| {
+                    let e = e.to_uppercase().replace('’', "'");
+                    e.contains("CONT'D") || e.contains("CONTD")
+                });
+                if !c.dual && !group && !marked && !last.is_empty() && speakers == last {
+                    out.push(i);
+                }
+                last = speakers;
+            }
+            Element::SceneHeading(_) | Element::Transition { .. } | Element::Centered(_) | Element::PageBreak(_) => {
+                last.clear()
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 pub fn serialize_body(body: &[Element]) -> String {
     let mut lines: Vec<String> = Vec::with_capacity(body.len());
     for el in body {
@@ -503,6 +533,21 @@ mod tests {
     }
 
     const SCREEN: &str = "---\nid: s1\n---\nINT. LIGHTHOUSE - NIGHT #12A#\n\nRain lashes the windows.\n\nMORDECAI (V.O.)\nAnother night.\n\nROSALIND ^\nAnother storm.\n\nCUT TO:\n\n.FLASHBACK\n\nint./ext. car - continuous\n\n>THE END<\n\n===\n\nInterior design is not a heading.\n";
+
+    #[test]
+    fn continued_cues_follow_the_same_speaker_after_action() {
+        let body = parse_body(
+            "HETTIE\nHello.\n\nShe turns.\n\nHETTIE\nStill here.\n\nTOBIAS\nYes.\n\nHETTIE\nWell.\n\nHETTIE (V.O.)\nAnd again.\n\nHETTIE (CONT'D)\nTyped.\n\nINT. HALL - DAY\n\nHETTIE\nNew scene.\n\nALL\nYes!\n\nALL\nNo!\n\nTOBIAS & HETTIE\nTogether.\n\nTOBIAS & HETTIE\nAgain.\n\nTOBIAS ^\nAt once.",
+        );
+        let cues: Vec<String> = continued_cues(&body)
+            .into_iter()
+            .map(|i| match &body[i] {
+                Element::Cue(c) => c.raw.clone(),
+                _ => unreachable!(),
+            })
+            .collect();
+        assert_eq!(cues, vec!["HETTIE", "HETTIE (V.O.)", "TOBIAS & HETTIE"]);
+    }
 
     #[test]
     fn screenplay_elements() {

@@ -74,6 +74,10 @@ class AppState {
   conflict = $state<{ diskVersion: string; body: string } | null>(null);
   error = $state<string | null>(null);
   metaOpen = $state(true);
+  /** The scene sidebar is shown (Ctrl+\ toggles it). */
+  treeOpen = $state(readPref("stagewright.tree", "1") === "1");
+  /** Folded episodes ("e:2") and acts ("a:2:1", "a::1"), per project. */
+  folded = $state<Set<string>>(new Set());
   busy = $state(false);
   recent = $state<string[]>(readRecent());
   /** Live co-writing session, when this project is shared. */
@@ -112,6 +116,7 @@ class AppState {
     }
     this.project = view;
     this.remember(view.root);
+    this.loadFolded();
     this.scene = null;
     this.view = { kind: "script" };
     if (resumeSharing) {
@@ -201,6 +206,33 @@ class AppState {
 
   inviteCode(): string | null {
     return this.collab && this.project ? this.collab.inviteCode(this.project.title) : null;
+  }
+
+  toggleTree() {
+    this.treeOpen = !this.treeOpen;
+    writePref("stagewright.tree", this.treeOpen ? "1" : "0");
+  }
+
+  private foldKey() {
+    return `stagewright.folded:${this.project?.root ?? ""}`;
+  }
+
+  loadFolded() {
+    try {
+      this.folded = new Set(JSON.parse(readPref(this.foldKey(), "[]")));
+    } catch {
+      this.folded = new Set();
+    }
+  }
+
+  setFolded(keys: string[], fold: boolean) {
+    const next = new Set(this.folded);
+    for (const k of keys) {
+      if (fold) next.add(k);
+      else next.delete(k);
+    }
+    this.folded = next;
+    writePref(this.foldKey(), JSON.stringify([...next]));
   }
 
   async openProject(root: string) {
@@ -524,6 +556,20 @@ class AppState {
         await api.setCheck(code, on);
       }
       this.checksVersion++;
+    });
+  }
+
+  /** Set a project option in project.yaml (shared when co-writing). */
+  async setOption(name: "auto_contd", value: unknown) {
+    await this.guard(async () => {
+      if (this.collab) {
+        const text = this.collab.fileText("project.yaml") ?? "";
+        this.collab.setFile("project.yaml", (await api.yamlSetOption(text, name, value)).text);
+        await this.collab.reconcile();
+        this.project = await api.projectView();
+      } else {
+        this.project = await api.setOption(name, value);
+      }
     });
   }
 

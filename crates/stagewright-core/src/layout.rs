@@ -102,6 +102,8 @@ pub struct Profile {
     pub centered: Slot,
     /// Blank line after every dialogue line (multi-camera).
     pub double_dialogue: bool,
+    /// Add (CONT'D) to cues that continue the previous speech (set from the project).
+    pub auto_contd: bool,
     /// Every scene starts a new page (multi-camera).
     pub scene_per_page: bool,
 }
@@ -155,6 +157,7 @@ impl Profile {
                 },
                 double_dialogue: false,
                 scene_per_page: false,
+                auto_contd: false,
             },
             Format::Film | Format::TvSingle | Format::TvMulti => {
                 let multi = format == Format::TvMulti;
@@ -197,6 +200,7 @@ impl Profile {
                     },
                     double_dialogue: multi,
                     scene_per_page: multi,
+                    auto_contd: false,
                 }
             }
         }
@@ -368,21 +372,24 @@ struct SpeechSlots {
     lyric: Slot,
 }
 
-fn cue_text(els: &[Element]) -> (String, String) {
+fn cue_text(els: &[Element], contd: bool) -> (String, String) {
     match &els[0] {
         Element::Cue(c) => {
-            let shown = match &c.extension {
+            let mut shown = match &c.extension {
                 Some(e) => format!("{} ({e})", c.name),
                 None => c.name.clone(),
             };
+            if contd {
+                shown.push_str(" (CONT'D)");
+            }
             (c.name.clone(), shown)
         }
         _ => (String::new(), String::new()),
     }
 }
 
-fn speech_lines(els: &[Element], s: &SpeechSlots, double: bool) -> Vec<Line> {
-    let mut lines = set(&cue_text(els).1, &s.cue);
+fn speech_lines(els: &[Element], s: &SpeechSlots, double: bool, contd: bool) -> Vec<Line> {
+    let mut lines = set(&cue_text(els, contd).1, &s.cue);
     for el in &els[1..] {
         match el {
             Element::Parenthetical(t) => lines.extend(set(t, &s.paren)),
@@ -450,8 +457,8 @@ fn dual_lines(left: &[Element], right: &[Element], p: &Profile) -> Vec<Line> {
             ..p.lyric
         },
     };
-    let a = speech_lines(left, &col(0), p.double_dialogue);
-    let b = speech_lines(right, &col(half + 2), p.double_dialogue);
+    let a = speech_lines(left, &col(0), p.double_dialogue, false);
+    let b = speech_lines(right, &col(half + 2), p.double_dialogue, false);
     (0..a.len().max(b.len()))
         .map(|i| {
             let mut text = String::new();
@@ -484,6 +491,14 @@ pub fn scene_blocks(scene: &Scene, p: &Profile) -> Vec<Block> {
     let mut blocks: Vec<Block> = Vec::new();
     let mut gap = 0usize;
     let mut last_speech: Option<(usize, &[Element])> = None; // block index, elements
+    let contd: Vec<usize> = if p.auto_contd {
+        crate::scene::continued_cues(&scene.body)
+    } else {
+        Vec::new()
+    };
+    // Which body element a speech starts at (units borrow slices of the body).
+    let index_of =
+        |els: &[Element]| (els.as_ptr() as usize - scene.body.as_ptr() as usize) / std::mem::size_of::<Element>();
     let push = |blocks: &mut Vec<Block>, gap: &mut usize, kind: BlockKind, lines: Vec<Line>| {
         let space_before = if blocks.is_empty() { 0 } else { (*gap).clamp(1, 2) };
         blocks.push(Block {
@@ -507,12 +522,13 @@ pub fn scene_blocks(scene: &Scene, p: &Profile) -> Vec<Block> {
                         gap = 0;
                     }
                     None => {
-                        let (cue, _) = cue_text(els);
+                        let (cue, _) = cue_text(els, false);
+                        let continues = contd.contains(&index_of(els));
                         push(
                             &mut blocks,
                             &mut gap,
                             BlockKind::Speech { cue },
-                            speech_lines(els, &normal, p.double_dialogue),
+                            speech_lines(els, &normal, p.double_dialogue, continues),
                         );
                         last_speech = Some((blocks.len() - 1, els));
                     }
@@ -870,6 +886,22 @@ mod tests {
         let b = scene_blocks(&scene("GUS\n(reading)\nWhy am I purple?\n"), &p);
         let t: Vec<&str> = b[0].lines.iter().map(|l| l.text.as_str()).collect();
         assert_eq!(t, vec!["GUS", "(reading)", "Why am I purple?"]);
+    }
+
+    #[test]
+    fn auto_contd_is_printed_on_continuing_cues() {
+        let body = "NELL\nHello.\n\nShe turns.\n\nNELL\nStill here.\n";
+        let mut p = Profile::for_format(Format::Film);
+        let cues = |p: &Profile| -> Vec<String> {
+            scene_blocks(&scene(body), p)
+                .iter()
+                .filter(|b| matches!(b.kind, BlockKind::Speech { .. }))
+                .map(|b| b.lines[0].text.trim().to_string())
+                .collect()
+        };
+        assert_eq!(cues(&p), vec!["NELL", "NELL"]);
+        p.auto_contd = true;
+        assert_eq!(cues(&p), vec!["NELL", "NELL (CONT'D)"]);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { bodyLines, classifyLines, liveStats, spokenWords } from "./classify";
+import { bodyLines, classifyLines, continuedCues, liveStats, spokenWords } from "./classify";
 import snapshot from "./__fixtures__/classify.json";
 
 // classify.json is produced by the Rust parser (`npm run parity`). CI regenerates
@@ -42,5 +42,15 @@ describe("live stats", () => {
     const s = liveStats(lines, classifyLines(lines));
     expect(Object.fromEntries(s.speakers)).toEqual({ TOBIAS: 3, HETTIE: 1 });
     expect(s.words).toBe(4);
+  });
+});
+
+describe("continued cues (same cases as the Rust test)", () => {
+  it("marks the same speaker after action, as Rust does", () => {
+    const body =
+      "HETTIE\nHello.\n\nShe turns.\n\nHETTIE\nStill here.\n\nTOBIAS\nYes.\n\nHETTIE\nWell.\n\nHETTIE (V.O.)\nAnd again.\n\nHETTIE (CONT'D)\nTyped.\n\nINT. HALL - DAY\n\nHETTIE\nNew scene.\n\nALL\nYes!\n\nALL\nNo!\n\nTOBIAS & HETTIE\nTogether.\n\nTOBIAS & HETTIE\nAgain.\n\nTOBIAS ^\nAt once.";
+    const lines = body.split("\n");
+    const marked = [...continuedCues(lines, classifyLines(lines))].map((i) => lines[i]);
+    expect(marked).toEqual(["HETTIE", "HETTIE (V.O.)", "TOBIAS & HETTIE"]);
   });
 });

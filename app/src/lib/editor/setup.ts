@@ -325,8 +325,10 @@ const theme = EditorView.theme({
     maxWidth: "62ch",
     margin: "0 auto",
     padding: "48px 0 40vh",
-    caretColor: "var(--accent)",
+    caretColor: "var(--cursor)",
   },
+  // CodeMirror draws its own cursor (by default near-black, lost on a dark page).
+  ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--cursor)", borderLeftWidth: "2px" },
   ".cm-line": { padding: "0 2px" },
   ".cm-activeLine": { backgroundColor: "var(--active-line)" },
   ".sw-direction": { fontStyle: "italic", color: "var(--ink-2)" },

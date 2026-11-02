@@ -15,6 +15,8 @@
   --warn: #a86a12;
   --bad: #b23a2b;
   --active-line: rgba(155, 61, 43, 0.045);
+  /* The text cursor in the editors: strong contrast with the page. */
+  --cursor: #1f1d1a;
   --radius: 6px;
   color-scheme: light;
 }
@@ -35,6 +37,7 @@
     --warn: #e0a64d;
     --bad: #e7735f;
     --active-line: rgba(224, 138, 111, 0.06);
+    --cursor: #ffffff;
     color-scheme: dark;
   }
 }

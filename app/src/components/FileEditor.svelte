@@ -67,7 +67,7 @@
               EditorView.theme({
                 "&": { height: "100%" },
                 ".cm-scroller": { fontFamily: "ui-monospace, Consolas, monospace", fontSize: "13px" },
-                ".cm-content": { padding: "16px 0" },
+                ".cm-content": { padding: "16px 0", caretColor: "var(--cursor)" },
               }),
             ],
           }),

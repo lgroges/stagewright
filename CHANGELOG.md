@@ -6,6 +6,9 @@ version when it offers the update. Add to **Unreleased** as you go;
 
 ## Unreleased
 
+- The text cursor is easier to see: white and thicker in dark mode (dark on the light
+  theme), in the script and in project files.
+
 ## 0.2.1 (2026-11-02)
 
 - Delete an act or a whole episode from the scene tree (the bin button that appears

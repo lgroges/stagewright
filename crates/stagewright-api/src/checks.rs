@@ -4,7 +4,7 @@ use crate::ops::{find_scene, load, read_text, scene_label, write_atomic};
 use crate::{ApiError, ApiResult};
 use serde_json::{json, Value};
 use stagewright_core::analysis::scene_stats;
-use stagewright_core::check::{check_scene, Context, CHECKS};
+use stagewright_core::check::{check_scene, Context, Person, Severity, CHECKS};
 use stagewright_core::frontmatter::set_key;
 use stagewright_core::project::ProjectMeta;
 use stagewright_core::Project;
@@ -18,12 +18,23 @@ fn context(p: &Project) -> Context {
     for sf in &p.scenes {
         known.extend(scene_stats(&sf.scene, &p.meta).speeches.keys().cloned());
     }
+    let people = p
+        .characters
+        .iter()
+        .map(|c| Person {
+            cue: c.cue.clone(),
+            name: c.name.clone(),
+            short: c.short.clone().filter(|s| !s.trim().is_empty()),
+        })
+        .collect();
     Context {
         format: p.meta.format,
         cast,
         known,
         introduced: Default::default(),
         off: p.meta.checks.off.iter().cloned().collect(),
+        people,
+        auto_contd: p.meta.auto_contd(),
     }
 }
 
@@ -58,6 +69,35 @@ pub fn check_project(root: &Path) -> ApiResult {
             v["title"] = json!(sf.scene.meta.title.clone().unwrap_or_else(|| sf.scene.meta.id.clone()));
             v["text"] = json!(lines.get(i.line).copied().unwrap_or(""));
             out.push(v);
+        }
+    }
+    // The project itself: what the title page will say.
+    if !ctx.off.contains("title-page") {
+        let title = p.meta.title.trim();
+        let slug_like =
+            !title.contains(' ') && (title.contains('-') || title.contains('_')) && title == title.to_lowercase();
+        let mut problems = Vec::new();
+        if title.is_empty() {
+            problems.push("has no title".to_string());
+        } else if slug_like {
+            problems.push(format!("will read \"{title}\", which looks like a folder name"));
+        }
+        if p.meta.authors.iter().all(|a| a.trim().is_empty()) {
+            problems.push("has no author".to_string());
+        }
+        if !problems.is_empty() {
+            infos += 1;
+            out.insert(
+                0,
+                json!({
+                    "code": "title-page",
+                    "severity": Severity::Info,
+                    "line": 0, "from": 0, "to": 0,
+                    "message": format!("The title page {}. Set title and authors in project.yaml.", problems.join(" and ")),
+                    "fix": null,
+                    "scene": "", "label": "Project", "title": "project.yaml", "text": "",
+                }),
+            );
         }
     }
     Ok(json!({ "issues": out, "warnings": warnings, "infos": infos, "checks": checks_json(&p) }))

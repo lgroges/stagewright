@@ -132,6 +132,9 @@ pub struct Character {
     pub name: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    /// What the action calls them after they're introduced ("Joanna").
+    #[serde(default)]
+    pub short: Option<String>,
     /// Doubling track, e.g. `actor-3`. `null` = unassigned; `any-free` = anyone not on stage.
     #[serde(default)]
     pub track: Option<String>,

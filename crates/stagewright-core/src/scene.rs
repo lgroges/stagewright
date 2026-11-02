@@ -429,7 +429,10 @@ pub fn continued_cues(body: &[Element]) -> Vec<usize> {
                 let speakers: Vec<&str> = c.speakers();
                 let group = speakers.iter().all(|s| *s == "ALL");
                 // Any spelling already typed: (CONT'D), (CONT.), (CONTD), (CONTINUED)…
-                let marked = c.extension.as_deref().is_some_and(|e| e.to_uppercase().contains("CONT"));
+                let marked = c
+                    .extension
+                    .as_deref()
+                    .is_some_and(|e| e.to_uppercase().contains("CONT"));
                 if !c.dual && !group && !marked && !last.is_empty() && speakers == last {
                     out.push(i);
                 }

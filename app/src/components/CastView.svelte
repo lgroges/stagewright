@@ -185,7 +185,7 @@
 
       <table class="list">
         <thead>
-          <tr><th>Cue</th><th>Name</th><th>Description</th><th>Actor (track)</th><th>Scenes</th><th class="n">Speeches</th><th></th></tr>
+          <tr><th>Cue</th><th>Name</th><th title="What the action calls them after their introduction">Short name</th><th>Description</th><th>Actor (track)</th><th>Scenes</th><th class="n">Speeches</th><th></th></tr>
         </thead>
         <tbody>
           {#each cast.characters as c (c.entry.id)}
@@ -198,6 +198,18 @@
                   aria-label="Name of {c.cue}"
                   onkeydown={onEnter}
                   onblur={(e) => saveField("characters.yaml", c.entry.id, "name", e.currentTarget.value, c.entry.name)}
+                />
+              </td>
+              <td>
+                <input
+                  type="text"
+                  class="short"
+                  value={c.entry.short ?? ""}
+                  placeholder={c.entry.name?.split(" ")[0] ?? "—"}
+                  aria-label="Short name of {c.cue}"
+                  title="What the action calls {c.cue} after their first appearance"
+                  onkeydown={onEnter}
+                  onblur={(e) => saveField("characters.yaml", c.entry.id, "short", e.currentTarget.value, c.entry.short)}
                 />
               </td>
               <td>
@@ -246,7 +258,9 @@
         <button disabled={!newCue.trim()}>Add character</button>
       </form>
       <p class="muted small">
-        The cue is the name as it appears above the character's lines. The track groups roles one actor plays, for the
+        The cue is the name as it appears above the character's lines{screen
+          ? "; in the action it introduces them, in capitals, and the short name is used after that"
+          : ""}. The track groups roles one actor plays, for the
         doubling check{screen ? "" : " in Production"}.
       </p>
     </section>
@@ -430,6 +444,9 @@
   }
   .list input.track {
     max-width: 9em;
+  }
+  .list input.short {
+    max-width: 8em;
   }
   .n {
     text-align: right;

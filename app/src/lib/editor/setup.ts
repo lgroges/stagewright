@@ -1,7 +1,7 @@
 // CodeMirror extensions for the script editor: stage-play layout, element
 // keys, cue autocompletion and upper-casing.
 
-import { EditorState, Prec, RangeSetBuilder, StateEffect, type Extension } from "@codemirror/state";
+import { EditorState, Prec, RangeSetBuilder, StateEffect, StateField, type Extension } from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -235,6 +235,8 @@ export interface CueSource {
   places?: () => string[];
   /** Film or TV: camera directions and transitions are suggested in action too. */
   screen?: () => boolean;
+  /** Ordinary-case names for the action after an introduction ("Joanna"). */
+  names?: () => string[];
 }
 
 /** Shots, angles and camera moves, written in capitals in screenplay action. */
@@ -360,12 +362,57 @@ function actionNameCompletion(source: CueSource) {
   };
 }
 
+/**
+ * After an introduction, the action uses an ordinary-case name ("Joanna"):
+ * typing its first two letters, capital first, suggests it.
+ */
+function actionShortNameCompletion(source: CueSource) {
+  return (ctx: CompletionContext) => {
+    if (!source.names || kindAt(ctx.state, ctx.pos) !== "direction") return null;
+    const line = ctx.state.doc.lineAt(ctx.pos);
+    const before = line.text.slice(0, ctx.pos - line.from);
+    const m = before.match(/(?:^|[^\p{L}\p{N}_])(\p{Lu}[\p{Ll}'’-]+(?: \p{Lu}[\p{Ll}'’-]*)*)$/u);
+    if (!m) return null;
+    const names = [...new Set(source.names())].filter(Boolean);
+    // Try the longest run of words first ("Joanna We" before "We").
+    const words = m[1].split(" ");
+    for (let k = 0; k < words.length; k++) {
+      const typed = words.slice(k).join(" ");
+      if (names.includes(typed)) return null;
+      const options = names.filter((n) => n.startsWith(typed)).sort();
+      if (!options.length) continue;
+      return {
+        from: ctx.pos - typed.length,
+        options: options.map((label) => ({ label, type: "variable", detail: "character" })),
+        validFor: (text: string) => !names.includes(text) && names.some((n) => n.startsWith(text)),
+      };
+    }
+    return null;
+  };
+}
+
 /** Character names on cue lines and in action, places and times on scene headings. */
 function scriptCompletion(source: CueSource) {
   const cue = cueCompletion(source);
   const heading = headingCompletion(source);
   const action = actionNameCompletion(source);
-  return (ctx: CompletionContext) => cue(ctx) ?? heading(ctx) ?? action(ctx);
+  const short = actionShortNameCompletion(source);
+  return (ctx: CompletionContext) => cue(ctx) ?? heading(ctx) ?? action(ctx) ?? short(ctx);
+}
+
+// ------------------------------------------------------------------ spelling
+
+/** Turn the system spellchecker on or off. */
+export const setSpelling = StateEffect.define<boolean>();
+const spellField = StateField.define<boolean>({
+  create: () => true,
+  update: (v, tr) => tr.effects.reduce((acc, e) => (e.is(setSpelling) ? e.value : acc), v),
+});
+function spelling(initial: boolean): Extension {
+  return [
+    spellField.init(() => initial),
+    EditorView.contentAttributes.compute([spellField], (s) => ({ spellcheck: s.field(spellField) ? "true" : "false" })),
+  ];
 }
 
 /** Cues already used in this scene, except on `skipLine` (the one being typed). */
@@ -562,6 +609,8 @@ export function scriptExtensions(opts: {
   onIssues?: (counts: { warnings: number; infos: number }) => void;
   /** Show (CONT'D) after cues that continue the previous speech. */
   autoContd?: () => boolean;
+  /** The system spellchecker, on at the start. */
+  spellcheck?: boolean;
 }): Extension[] {
   const shared = opts.shared;
   return [
@@ -601,5 +650,6 @@ export function scriptExtensions(opts: {
     }),
     opts.check ? [scriptCheck(opts.check), keymap.of(lintKeymap), checkTheme] : [],
     opts.autoContd ? contdLabels(opts.autoContd) : [],
+    spelling(opts.spellcheck ?? true),
   ];
 }

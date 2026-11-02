@@ -57,6 +57,8 @@ export interface Character {
   id: string;
   cue: string;
   name?: string | null;
+  /** What the action calls them after the introduction ("Joanna"). */
+  short?: string | null;
   description?: string | null;
   track?: string | null;
 }
@@ -164,7 +166,7 @@ export interface ProjectFile {
 export type Entry = Record<string, unknown> & { id: string };
 
 export interface CastCharacter {
-  entry: Entry & { cue: string; name?: string; description?: string; track?: string | null };
+  entry: Entry & { cue: string; name?: string; short?: string; description?: string; track?: string | null };
   cue: string;
   /** Scene labels ("1.2", "E1 2.3") the character is in. */
   scenes: string[];

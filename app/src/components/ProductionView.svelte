@@ -133,10 +133,14 @@
           <ul>
             {#each g.issues as i}
               <li class={i.severity}>
-                <button class="ghost link" onclick={() => app.showLine(i.scene, i.line)} title="Show in the script">
+                <button
+                  class="ghost link"
+                  onclick={() => (i.scene ? app.showLine(i.scene, i.line) : (app.view = { kind: "file", name: "project.yaml" }))}
+                  title={i.scene ? "Show in the script" : "Open project.yaml"}
+                >
                   <span class="sev">{i.severity === "warning" ? "⚠" : "•"}</span>
                   <span class="msg">{i.message}</span>
-                  <span class="line muted">{i.text.trim() ? i.text.trim() : "(blank line)"}</span>
+                  <span class="line muted">{i.scene ? (i.text.trim() ? i.text.trim() : "(blank line)") : "project.yaml"}</span>
                 </button>
               </li>
             {/each}

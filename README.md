@@ -112,7 +112,14 @@ bracket; dual dialogue with nothing beside it) and conventions with a dotted lin
 of day, INT without a full stop, a character's first appearance not in capitals). Point
 at one for the reason and a one-click fix where the fix is certain; the status bar counts
 them (click to list, F8 for the next). **Production** lists every issue in the play.
-Checks can be switched off per project (`checks: {off: [...]}` in project.yaml).
+In film and TV, characters are introduced once with their full name in capitals and
+then written with their **short name** (set in Cast, e.g. `short: Joanna` in
+characters.yaml): capitals after the introduction are noted with the short name as the
+fix, and typing the first letters of a short name in the action suggests it. Headings
+need a blank line after them and no description in them; action paragraphs are kept to
+4 printed lines. The editor also checks spelling with the system dictionary (the
+**Spelling** button turns it off). Checks can be switched off per project
+(`checks: {off: [...]}` in project.yaml).
 `stagewright check <dir>` prints the same list.
 
 The **Details** panel edits title (renames the file), status, a manual running time

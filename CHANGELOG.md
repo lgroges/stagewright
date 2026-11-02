@@ -17,12 +17,22 @@ change, the cursor, is listed under 0.3.0.)
     not in capitals, a cue or singer that isn't in the cast list ("did you mean…?"), a
     song never closed, ~ END SONG with no song, a parenthetical missing its ")", and
     dual dialogue (^) with nothing beside it.
-  - Notes: (CONT'D) after a different speaker, someone "on stage but silent" who
-    speaks, lyrics outside a song; in film and TV, headings with no time of day or a
-    misspelt one (NITE), INT without a full stop, scenes not starting with a heading,
-    and a character's first appearance in the action not in capitals.
+  - Notes: (CONT'D) after a different speaker, or typed by hand when it's automatic
+    (or spelt (CONT.)); someone "on stage but silent" who speaks; lyrics outside a
+    song; the title page missing a title or author.
+  - Film and TV: a scene heading with no blank line after it (other apps won't read it
+    as a heading) or with description in it ("- MORNING. SPRING." — the fix moves it
+    into the action); no or a misspelt time of day (NITE); INT without a full stop;
+    scenes not starting with a heading; action lines running together without a blank
+    line; action paragraphs longer than 4 printed lines.
+  - Characters in film and TV: introduced once with their full name in capitals, then
+    written with their **short name** (set in Cast, e.g. Joanna): capitals after the
+    introduction are noted, with the short name as the fix, and typing the first
+    letters of a short name in the action suggests it.
   - Any check can be switched off for a project ("Don't check for this", or Checks…
     in Production); the setting is kept in project.yaml.
+- **Spelling** is checked in the script with your computer's own dictionary (the
+  Spelling button above the script turns it off).
 - **(CONT'D) added automatically** when a character speaks again after only action,
   in the same scene: shown faintly after the cue (it isn't typed into your text, so it
   stays right as you edit) and printed in PDF and Fountain exports. On for film and

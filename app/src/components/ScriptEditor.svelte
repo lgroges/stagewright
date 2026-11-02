@@ -8,7 +8,7 @@
   import { liveStats } from "../lib/classify";
   import { openLintPanel } from "@codemirror/lint";
   import { recheck } from "../lib/editor/check";
-  import { refreshContd } from "../lib/editor/setup";
+  import { refreshContd, setSpelling } from "../lib/editor/setup";
   import { api } from "../lib/api";
 
   let host: HTMLDivElement;
@@ -54,6 +54,8 @@
           cues: () => app.project?.cues ?? [],
           places: () => app.project?.heading_locations ?? [],
           screen: () => (app.project?.format ?? "stage") !== "stage",
+          names: () =>
+            (app.project?.characters ?? []).flatMap((c) => [c.short, c.name].filter((n): n is string => !!n && /\p{Ll}/u.test(n))),
         },
         onChange: (s) => {
           app.bodyChanged(s.doc.toString());
@@ -69,6 +71,7 @@
           off: (code) => void app.setCheck(code, false),
         },
         autoContd: () => app.project?.auto_contd ?? false,
+        spellcheck: app.spellcheck,
         onIssues: (n) => {
           if (n.warnings !== issues.warnings || n.infos !== issues.infos) issues = n;
         },
@@ -130,6 +133,11 @@
     void app.checksVersion;
     void app.project?.cues;
     if (view) view.dispatch({ effects: recheck.of(null) });
+  });
+
+  $effect(() => {
+    const on = app.spellcheck;
+    if (view) view.dispatch({ effects: setSpelling.of(on) });
   });
 
   // Show or hide the automatic (CONT'D) when the setting changes.
@@ -199,6 +207,14 @@
       onclick={() => view && asCommand(stanzaBreak)(view)}
       disabled={active !== "lyric" && active !== "song"}>Stanza</button
     >
+    <button
+      class="ghost spell"
+      class:off={!app.spellcheck}
+      onclick={() => app.toggleSpellcheck()}
+      aria-pressed={app.spellcheck}
+      title={app.spellcheck ? "Spelling is checked (your computer's dictionary). Click to stop." : "Spelling isn't checked. Click to check it."}
+      data-testid="spellcheck">Spelling</button
+    >
     <button class="ghost keys" onclick={() => (showKeys = !showKeys)} aria-expanded={showKeys}>Keys</button>
   </div>
 
@@ -257,6 +273,18 @@
 </div>
 
 <style>
+  .spell {
+    margin-left: auto;
+    text-decoration: underline wavy color-mix(in srgb, var(--bad) 70%, transparent);
+    text-underline-offset: 4px;
+  }
+  .spell.off {
+    text-decoration: none;
+    color: var(--ink-3);
+  }
+  .spell + .keys {
+    margin-left: 0;
+  }
   .editor {
     display: flex;
     flex-direction: column;

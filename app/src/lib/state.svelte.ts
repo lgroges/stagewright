@@ -76,6 +76,8 @@ class AppState {
   metaOpen = $state(true);
   /** The scene sidebar is shown (Ctrl+\ toggles it). */
   treeOpen = $state(readPref("stagewright.tree", "1") === "1");
+  /** The system spellchecker in the script. */
+  spellcheck = $state(readPref("stagewright.spellcheck", "1") === "1");
   /** Folded episodes ("e:2") and acts ("a:2:1", "a::1"), per project. */
   folded = $state<Set<string>>(new Set());
   busy = $state(false);
@@ -206,6 +208,11 @@ class AppState {
 
   inviteCode(): string | null {
     return this.collab && this.project ? this.collab.inviteCode(this.project.title) : null;
+  }
+
+  toggleSpellcheck() {
+    this.spellcheck = !this.spellcheck;
+    writePref("stagewright.spellcheck", this.spellcheck ? "1" : "0");
   }
 
   toggleTree() {

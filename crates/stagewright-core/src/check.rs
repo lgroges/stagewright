@@ -69,7 +69,92 @@ pub const CHECKS: &[(&str, &str)] = &[
         "A film or TV scene that doesn't start with a heading",
     ),
     ("intro-caps", "A character's first appearance not in capitals"),
+    ("caps-after-intro", "A character in capitals after their introduction"),
+    ("heading-blank-after", "A scene heading with no blank line after it"),
+    ("action-run-on", "Action lines running together without a blank line"),
+    ("heading-description", "Description inside a scene heading"),
+    ("contd-typed", "(CONT'D) typed by hand, or spelt (CONT.)"),
+    ("long-action", "An action paragraph longer than 4 lines"),
+    ("title-page", "Title page details missing"),
 ];
+
+/// A character as the action may mention them.
+#[derive(Debug, Clone, Default)]
+pub struct Person {
+    /// The cue, in capitals: how they're introduced ("JOANNA WESTON").
+    pub cue: String,
+    /// Their name as written in the cast list ("Joanna Weston").
+    pub name: Option<String>,
+    /// What the action calls them after the introduction ("Joanna").
+    pub short: Option<String>,
+}
+
+impl Person {
+    /// How to write them after they've been introduced.
+    pub fn later(&self) -> String {
+        self.short
+            .clone()
+            .or_else(|| self.name.clone())
+            .unwrap_or_else(|| title_case(&self.cue))
+    }
+}
+
+/// `THE MINISTER` -> `The Minister`.
+fn title_case(s: &str) -> String {
+    s.split(' ')
+        .map(|w| {
+            let mut c = w.chars();
+            match c.next() {
+                Some(f) => f.to_uppercase().collect::<String>() + &c.as_str().to_lowercase(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// `SPRING. THE SUN SHINES.` -> `Spring. The sun shines.`
+fn sentence_case(s: &str) -> String {
+    if s.chars().any(|c| c.is_lowercase()) {
+        return s.to_string();
+    }
+    let mut out = String::new();
+    let mut start = true;
+    for c in s.to_lowercase().chars() {
+        if start && c.is_alphabetic() {
+            out.extend(c.to_uppercase());
+            start = false;
+        } else {
+            out.push(c);
+        }
+        if matches!(c, '.' | '!' | '?') {
+            start = true;
+        }
+    }
+    out
+}
+
+/// Every whole-word occurrence of `form` in `text`, as character columns and
+/// whether it was written in capitals. `any_case` also matches other casings.
+fn occurrences(text: &[char], form: &str, any_case: bool) -> Vec<(usize, usize, bool)> {
+    let f: Vec<char> = form.chars().collect();
+    let mut out = Vec::new();
+    if f.is_empty() || f.len() > text.len() {
+        return out;
+    }
+    let word = |c: Option<&char>| c.is_some_and(|c| c.is_alphanumeric() || *c == '_');
+    let same = |a: char, b: char| a == b || (any_case && a.to_uppercase().eq(b.to_uppercase()));
+    for i in 0..=text.len() - f.len() {
+        if (0..f.len()).all(|k| same(text[i + k], f[k]))
+            && !word(i.checked_sub(1).map(|j| &text[j]))
+            && !word(text.get(i + f.len()))
+        {
+            let caps = !text[i..i + f.len()].iter().any(|c| c.is_lowercase());
+            out.push((i, i + f.len(), caps));
+        }
+    }
+    out
+}
 
 /// What the check knows about the rest of the project.
 #[derive(Debug, Clone, Default)]
@@ -82,6 +167,11 @@ pub struct Context {
     /// Characters already introduced in earlier scenes (screen formats).
     pub introduced: BTreeSet<String>,
     pub off: BTreeSet<String>,
+    /// Characters with their names and short names, for introductions.
+    /// Cues not in the cast list are added by `check_scene` from `known`.
+    pub people: Vec<Person>,
+    /// (CONT'D) is added automatically in this project.
+    pub auto_contd: bool,
 }
 
 const GROUP_CUES: &[&str] = &["ALL"];
@@ -193,28 +283,6 @@ fn is_contd(ext: &str) -> bool {
     e == "CONT'D" || e == "CONTD" || e == "CONT."
 }
 
-/// `Hettie` -> `HETTIE` mentions, when an all-capitals copy is a different length
-/// (rare non-ASCII cases) the search is skipped.
-fn find_name_not_caps(text: &str, name: &str) -> Option<(usize, usize)> {
-    let upper = text.to_uppercase();
-    if upper.len() != text.len() {
-        return None;
-    }
-    let mut start = 0;
-    while let Some(i) = upper[start..].find(name).map(|i| i + start) {
-        let end = i + name.len();
-        let before = text[..i].chars().next_back();
-        let after = text[end..].chars().next();
-        let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
-        if !word(before) && !word(after) && &text[i..end] != name {
-            let from = text[..i].chars().count();
-            return Some((from, from + text[i..end].chars().count()));
-        }
-        start = end;
-    }
-    None
-}
-
 /// Check one scene body. `ctx.introduced` is updated with characters this
 /// scene introduces, so a project check can carry it from scene to scene.
 pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue> {
@@ -225,6 +293,16 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
     };
     let els = parse_body(body);
     let screen = ctx.format.is_screen();
+    // Everyone the action may mention: the cast list, plus cues not in it.
+    let mut people = ctx.people.clone();
+    for cue in &ctx.known {
+        if !people.iter().any(|p| &p.cue == cue) && !GROUP_CUES.contains(&cue.as_str()) {
+            people.push(Person {
+                cue: cue.clone(),
+                ..Default::default()
+            });
+        }
+    }
     let mut out: Vec<Issue> = Vec::new();
 
     let mut open_song: Option<usize> = None;
@@ -313,6 +391,36 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
                         }),
                     ));
                 }
+                if let Some(ext) = &c.extension
+                    && ext.to_uppercase().contains("CONT")
+                    && !prev_speakers.is_empty()
+                    && prev_speakers == speakers
+                {
+                    let without = text.replacen(&format!(" ({ext})"), "", 1);
+                    let spelled = text.replacen(&format!("({ext})"), "(CONT'D)", 1);
+                    if ctx.auto_contd {
+                        out.push(issue(
+                            "contd-typed",
+                            Severity::Info,
+                            i,
+                            (0, 0),
+                            format!("({ext}) isn't needed: (CONT'D) is added automatically in this project."),
+                            (without != text).then(|| Fix {
+                                label: format!("Remove ({ext})"),
+                                edits: vec![Edit::Replace { line: i, text: without }],
+                            }),
+                        ));
+                    } else if ext.trim() != "CONT'D" {
+                        out.push(issue(
+                            "contd-typed",
+                            Severity::Info,
+                            i,
+                            (0, 0),
+                            format!("The usual spelling is (CONT'D), not ({ext})."),
+                            fix("Write (CONT'D)", vec![Edit::Replace { line: i, text: spelled }]),
+                        ));
+                    }
+                }
                 if c.dual {
                     // The speech it sits beside must end just before it.
                     let before = (0..i).rev().find(|&j| !matches!(els[j], Element::Blank));
@@ -383,45 +491,114 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
                         ));
                     }
                 }
-                // Introductions: a character's first mention in action is in capitals.
+                // Introductions: the first mention in action is the full name in
+                // capitals; after that, the short name in ordinary case.
                 // (Multi-camera action is printed in capitals anyway.)
                 if screen && ctx.format != Format::TvMulti {
-                    for name in ctx.known.clone() {
-                        if ctx.introduced.contains(&name) || name.chars().count() < 2 {
-                            continue;
+                    let off = usize::from(*forced);
+                    let chars: Vec<char> = t.chars().collect();
+                    // (from, to, caps, person index)
+                    let mut found: Vec<(usize, usize, bool, usize)> = Vec::new();
+                    for (pi, p) in people.iter().enumerate() {
+                        let mut forms: Vec<(String, bool)> = vec![(p.cue.clone(), true)];
+                        if let Some(n) = &p.name {
+                            forms.push((n.clone(), false));
                         }
-                        let caps = cols(t, &name);
-                        let lower = find_name_not_caps(t, &name);
-                        match (caps.1 > 0, lower) {
-                            (true, Some(l)) if l.0 < caps.0 => {}
-                            (true, _) => {
-                                ctx.introduced.insert(name.clone());
-                                continue;
+                        if let Some(s) = &p.short {
+                            forms.push((s.clone(), true));
+                        }
+                        for (form, any_case) in forms {
+                            for (a, b, caps) in occurrences(&chars, &form, any_case) {
+                                found.push((a, b, caps, pi));
                             }
-                            (false, None) => continue,
-                            _ => {}
                         }
-                        if let Some((from, to)) = lower {
-                            let off = usize::from(*forced);
-                            let span = (from + off, to + off);
-                            let before: String = text.chars().take(span.0).collect();
-                            let after: String = text.chars().skip(span.1).collect();
+                    }
+                    // Longest first at each place; drop matches inside another.
+                    found.sort_by_key(|(a, b, _, _)| (*a, std::cmp::Reverse(*b)));
+                    let mut kept: Vec<(usize, usize, bool, usize)> = Vec::new();
+                    for m in found {
+                        if kept.last().is_none_or(|k| m.0 >= k.1) {
+                            kept.push(m);
+                        }
+                    }
+                    for (a, b, caps, pi) in kept {
+                        let p = &people[pi];
+                        let span = (a + off, b + off);
+                        let before: String = text.chars().take(span.0).collect();
+                        let after: String = text.chars().skip(span.1).collect();
+                        if !ctx.introduced.contains(&p.cue) {
+                            ctx.introduced.insert(p.cue.clone());
+                            if !caps {
+                                out.push(issue(
+                                    "intro-caps",
+                                    Severity::Info,
+                                    i,
+                                    span,
+                                    format!("First appearance of {}: screenplays introduce a character with their full name in capitals.", p.cue),
+                                    fix(
+                                        format!("Write {}", p.cue),
+                                        vec![Edit::Replace { line: i, text: format!("{before}{}{after}", p.cue) }],
+                                    ),
+                                ));
+                            }
+                        } else if caps {
+                            let later = p.later();
+                            let note = if p.short.is_some() {
+                                String::new()
+                            } else {
+                                " (give them a short name in Cast)".to_string()
+                            };
                             out.push(issue(
-                                "intro-caps",
+                                "caps-after-intro",
                                 Severity::Info,
                                 i,
                                 span,
-                                format!("First appearance of {name}: screenplays introduce a character in capitals."),
+                                format!(
+                                    "{} has already been introduced: from here on, write {later}{note}.",
+                                    p.cue
+                                ),
                                 fix(
-                                    format!("Write {name}"),
+                                    format!("Write {later}"),
                                     vec![Edit::Replace {
                                         line: i,
-                                        text: format!("{before}{name}{after}"),
+                                        text: format!("{before}{later}{after}"),
                                     }],
                                 ),
                             ));
-                            ctx.introduced.insert(name.clone());
                         }
+                    }
+                }
+                // Action runs on: two action lines with no blank line between.
+                if screen && i > 0 && matches!(els[i - 1], Element::Direction { .. }) {
+                    out.push(issue(
+                        "action-run-on",
+                        Severity::Info,
+                        i,
+                        (0, 0),
+                        "This runs on from the line above as one paragraph; screenplays separate action paragraphs with a blank line.".into(),
+                        fix("Add a blank line before it", vec![Edit::InsertBefore { line: i, text: String::new() }]),
+                    ));
+                }
+                // Long action: count printed lines of the paragraph, at its first line.
+                if screen && !(i > 0 && matches!(els[i - 1], Element::Direction { .. })) {
+                    let width = crate::layout::Profile::for_format(ctx.format).action.width;
+                    let printed: usize = els[i..]
+                        .iter()
+                        .take_while(|e| matches!(e, Element::Direction { .. }))
+                        .map(|e| match e {
+                            Element::Direction { text, .. } => crate::layout::wrap(text, width).len(),
+                            _ => 0,
+                        })
+                        .sum();
+                    if printed > 4 {
+                        out.push(issue(
+                            "long-action",
+                            Severity::Info,
+                            i,
+                            (0, 0),
+                            format!("This action paragraph prints at {printed} lines; screenplays usually keep action to 3 or 4 lines at a time, so it reads quickly."),
+                            None,
+                        ));
                     }
                 }
             }
@@ -488,6 +665,58 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
             }
             Element::SceneHeading(h) => {
                 let (setting, _, time) = h.parts();
+                let next_blank = blank(i + 1);
+                if !next_blank {
+                    out.push(issue(
+                        "heading-blank-after",
+                        Severity::Warning,
+                        i,
+                        (0, 0),
+                        "A scene heading needs a blank line after it; other screenwriting apps won't read it as a heading without one.".into(),
+                        fix("Add a blank line after it", vec![Edit::InsertAfter { line: i, text: String::new() }]),
+                    ));
+                }
+                // Description in the heading: "- MORNING. SPRING. THE SUN SHINES."
+                if let Some(t) = &time {
+                    let trimmed = t.trim_end_matches('.').trim();
+                    if let Some(dot) = trimmed.find(". ") {
+                        let keep = trimmed[..dot].trim();
+                        let rest = t[dot + 1..].trim();
+                        if !keep.is_empty() && !rest.is_empty() {
+                            let heading = match text.rfind(t.as_str()) {
+                                Some(at) => format!("{}{}{}", &text[..at], keep, &text[at + t.len()..]),
+                                None => text.to_string(),
+                            };
+                            let action = sentence_case(rest);
+                            let mut edits = vec![
+                                Edit::Replace { line: i, text: heading },
+                                Edit::InsertAfter {
+                                    line: i,
+                                    text: String::new(),
+                                },
+                                Edit::InsertAfter {
+                                    line: i,
+                                    text: action.clone(),
+                                },
+                            ];
+                            if !next_blank {
+                                edits.push(Edit::InsertAfter {
+                                    line: i,
+                                    text: String::new(),
+                                });
+                            }
+                            let from = text.rfind(rest).map(|b| text[..b].chars().count()).unwrap_or(0);
+                            out.push(issue(
+                                "heading-description",
+                                Severity::Info,
+                                i,
+                                (from, from + rest.chars().count()),
+                                format!("Keep the heading to place and time; \"{action}\" belongs in the action."),
+                                fix(format!("Move \"{action}\" into the action"), edits),
+                            ));
+                        }
+                    }
+                }
                 if screen && time.is_none() {
                     out.push(issue(
                         "heading-no-time",
@@ -499,7 +728,17 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
                     ));
                 }
                 if let Some(t) = time {
-                    let core = t.split(" (").next().unwrap_or(&t).trim().to_uppercase();
+                    // The time itself: before any "(FLASHBACK)" or a description after ". ".
+                    let written = t
+                        .split(" (")
+                        .next()
+                        .unwrap_or(&t)
+                        .split(". ")
+                        .next()
+                        .unwrap_or(&t)
+                        .trim()
+                        .trim_end_matches('.');
+                    let core = written.to_uppercase();
                     if !TIMES.contains(&core.as_str()) {
                         let suggestion = TIME_ALIASES
                             .iter()
@@ -510,8 +749,8 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
                                 near(&core, &times).cloned()
                             });
                         if let Some(good) = suggestion {
-                            let span = cols(text, t.split(" (").next().unwrap_or(&t).trim());
-                            let replaced = replace_word(text, t.split(" (").next().unwrap_or(&t).trim(), &good).0;
+                            let span = cols(text, written);
+                            let replaced = replace_word(text, written, &good).0;
                             out.push(issue(
                                 "heading-time",
                                 Severity::Info,
@@ -847,7 +1086,162 @@ mod tests {
     fn every_rule_is_listed() {
         let src = include_str!("check.rs");
         for (code, _) in CHECKS {
+            if *code == "title-page" {
+                continue; // a project-level check, made in the API
+            }
             assert!(src.matches(&format!("\"{code}\"")).count() >= 2, "{code}");
         }
+    }
+
+    fn people_ctx() -> Context {
+        let mut c = ctx(Format::TvSingle);
+        for (cue, name, short) in [
+            ("JOANNA WESTON", Some("Joanna Weston"), Some("Joanna")),
+            ("JANE DEE", Some("Jane Dee"), Some("Jane")),
+            ("MINISTER", Some("Minister"), None),
+        ] {
+            c.cast.insert(cue.into());
+            c.known.insert(cue.into());
+            c.people.push(Person {
+                cue: cue.into(),
+                name: name.map(Into::into),
+                short: short.map(Into::into),
+            });
+        }
+        c.auto_contd = true;
+        c
+    }
+
+    fn run(body: &str, c: &mut Context) -> Vec<Issue> {
+        check_scene(body, &SceneMeta::default(), c)
+    }
+
+    #[test]
+    fn introductions_then_short_names() {
+        let mut c = people_ctx();
+        let body = "INT. CHURCH - DAY\n\nJOANNA WESTON weeps. JANE DEE holds JOANNA WESTON's hand. Joanna smiles.\n\nA MINISTER waits. The MINISTER bows.";
+        let issues = run(body, &mut c);
+        let got: Vec<(&str, usize, usize, String)> = issues
+            .iter()
+            .filter(|i| i.code == "caps-after-intro" || i.code == "intro-caps")
+            .map(|i| (i.code, i.from, i.to, i.fix.as_ref().unwrap().label.clone()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("caps-after-intro", 36, 49, "Write Joanna".to_string()),
+                ("caps-after-intro", 22, 30, "Write Minister".to_string()),
+            ]
+        );
+        let fix = &issues
+            .iter()
+            .find(|i| i.code == "caps-after-intro")
+            .unwrap()
+            .fix
+            .as_ref()
+            .unwrap()
+            .edits[0];
+        assert_eq!(
+            fix,
+            &Edit::Replace {
+                line: 2,
+                text: "JOANNA WESTON weeps. JANE DEE holds Joanna's hand. Joanna smiles.".into()
+            }
+        );
+        // Someone met by their short name before the introduction: introduce them properly.
+        let mut c = people_ctx();
+        let issues = run("INT. CHURCH - DAY\n\nJoanna arrives.", &mut c);
+        let i = issues.iter().find(|i| i.code == "intro-caps").unwrap();
+        assert_eq!(
+            i.fix.as_ref().unwrap().edits[0],
+            Edit::Replace {
+                line: 2,
+                text: "JOANNA WESTON arrives.".into()
+            }
+        );
+        // Introduced in an earlier scene: capitals now are "after".
+        assert!(run("INT. HALL - DAY\n\nJANE DEE sits.", &mut c).is_empty());
+        let mut c2 = people_ctx();
+        c2.introduced.insert("JANE DEE".into());
+        assert_eq!(
+            run("INT. HALL - DAY\n\nJANE DEE sits.", &mut c2)[0].code,
+            "caps-after-intro"
+        );
+    }
+
+    #[test]
+    fn headings_need_a_blank_line_and_no_description() {
+        let mut c = people_ctx();
+        let body = "EXT. ROAD - MORNING. SPRING. THE SUN SHINES.\nA procession.\nThe gate.";
+        let issues = run(body, &mut c);
+        let codes: Vec<&str> = issues.iter().map(|i| i.code).collect();
+        assert_eq!(
+            codes,
+            vec!["heading-blank-after", "heading-description", "action-run-on"]
+        );
+        let desc = issues.iter().find(|i| i.code == "heading-description").unwrap();
+        assert_eq!(
+            desc.message,
+            "Keep the heading to place and time; \"Spring. The sun shines.\" belongs in the action."
+        );
+        assert_eq!(
+            desc.fix.as_ref().unwrap().edits,
+            vec![
+                Edit::Replace {
+                    line: 0,
+                    text: "EXT. ROAD - MORNING".into()
+                },
+                Edit::InsertAfter {
+                    line: 0,
+                    text: String::new()
+                },
+                Edit::InsertAfter {
+                    line: 0,
+                    text: "Spring. The sun shines.".into()
+                },
+                Edit::InsertAfter {
+                    line: 0,
+                    text: String::new()
+                },
+            ]
+        );
+        // Not a misspelt time.
+        assert!(!codes.contains(&"heading-time"));
+    }
+
+    #[test]
+    fn typed_contd_and_long_action() {
+        let mut c = people_ctx();
+        let body = "INT. CHURCH - DAY\n\nMINISTER\nI am.\n\nHe turns.\n\nMINISTER (CONT.)\nI know.";
+        let i = run(body, &mut c).into_iter().find(|i| i.code == "contd-typed").unwrap();
+        assert_eq!(
+            i.message,
+            "(CONT.) isn't needed: (CONT'D) is added automatically in this project."
+        );
+        assert_eq!(
+            i.fix.unwrap().edits,
+            vec![Edit::Replace {
+                line: 7,
+                text: "MINISTER".into()
+            }]
+        );
+        c.auto_contd = false;
+        let i = run(body, &mut c).into_iter().find(|i| i.code == "contd-typed").unwrap();
+        assert_eq!(
+            i.fix.unwrap().edits,
+            vec![Edit::Replace {
+                line: 7,
+                text: "MINISTER (CONT'D)".into()
+            }]
+        );
+        let long = format!("INT. CHURCH - DAY\n\n{}", "Words go here. ".repeat(20));
+        let i = run(&long, &mut people_ctx())
+            .into_iter()
+            .find(|i| i.code == "long-action")
+            .unwrap();
+        assert_eq!(
+            i.message,
+            "This action paragraph prints at 5 lines; screenplays usually keep action to 3 or 4 lines at a time, so it reads quickly."
+        );
     }
 }

@@ -170,7 +170,7 @@ fn same_shape(before: &str, after: &str) -> Result<(), String> {
 // ---------------------------------------------------------------- registries
 
 /// Order keys are written in, per registry; others follow alphabetically.
-pub const CHARACTER_KEYS: &[&str] = &["id", "cue", "name", "description", "track"];
+pub const CHARACTER_KEYS: &[&str] = &["id", "cue", "name", "short", "description", "track"];
 pub const LOCATION_KEYS: &[&str] = &["id", "name", "description"];
 pub const SONG_KEYS: &[&str] = &["id", "title", "by", "sung_in", "heard_in", "singers", "note"];
 

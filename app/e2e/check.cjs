@@ -45,7 +45,7 @@ async function open(browser, fixture) {
 (async () => {
   const browser = await chromium.launch();
   const snap = async (page, n) => shots && (await page.screenshot({ path: path.join(shots, n) }));
-  let s1, s2;
+  let s1, s2, s3;
   try {
     s1 = await open(browser, "stage-sample");
     const { page, project } = s1;
@@ -138,7 +138,7 @@ async function open(browser, fixture) {
     await f.keyboard.press("Enter");
     await f.keyboard.type("int kitchen - nite");
     await f.keyboard.press("Enter");
-    await f.keyboard.type("Tom eats. TOM looks up.");
+    await f.keyboard.type("Tom eats.");
     await f.waitForFunction(() => /2 notes/.test(document.querySelector('[data-testid="issue-count"]')?.textContent ?? ""), null, { timeout: 5000 });
     await f.click('[data-testid="issue-count"]');
     const fp = await f.locator(".cm-panel-lint").textContent();
@@ -152,6 +152,56 @@ async function open(browser, fixture) {
     check("TOM was introduced in an earlier scene, so no note", true);
     await snap(f, "check-3-film.png");
     check("no browser errors (film)", s2.errors.length === 0, s2.errors.join(" | "));
+
+    // 6. TV: short names, introductions, headings, spelling
+    s3 = await open(browser, "tv-series-sample");
+    const t = s3.page;
+    const tk = t.keyboard;
+    const ttext = () => t.evaluate(() => window.__swText());
+    await t.click(`nav[aria-label="Views"] >> text=Cast`);
+    const short = t.locator('[aria-label="Short name of DANA"]');
+    await short.fill("Dana");
+    await short.press("Enter");
+    await t.waitForFunction(() => true);
+    await t.waitForTimeout(400);
+    check("a short name is saved", /cue: DANA, name: "?Dana Okafor"?, short: Dana/.test(fs.readFileSync(path.join(s3.project, "characters.yaml"), "utf8")));
+    await t.click(`nav[aria-label="Views"] >> text=Script`);
+    await t.click(".cm-content");
+    await tk.press("Control+End");
+    await tk.press("Enter");
+    await tk.type("Later, DANA checks her watch.");
+    await t.waitForFunction(() => /1 note/.test(document.querySelector('[data-testid="issue-count"]')?.textContent ?? ""), null, { timeout: 5000 });
+    await t.click('[data-testid="issue-count"]');
+    const tp = await t.locator(".cm-panel-lint").textContent();
+    check("capitals after the introduction are noted", /DANA has already been introduced: from here on, write Dana\./.test(tp), tp);
+    await t.locator('.cm-panel-lint button:has-text("Write Dana")').first().click();
+    await t.waitForFunction(() => window.__swText().endsWith("Later, Dana checks her watch."));
+    check("the fix writes the short name", true);
+    await t.keyboard.press("Escape");
+    await t.click(".cm-content");
+    await tk.press("Control+End");
+    await tk.type(" Da");
+    await t.waitForSelector(".cm-tooltip-autocomplete li:has-text('Dana')");
+    await tk.press("Enter");
+    check("short names are suggested in the action", (await ttext()).endsWith("watch. Dana"));
+    // A heading with description and no blank line after it
+    await tk.press("Enter");
+    await tk.press("Enter");
+    await tk.type("EXT. YARD - NIGHT. RAIN FALLS.");
+    await tk.press("Shift+Enter");
+    await tk.type("Mud everywhere.");
+    await t.waitForFunction(() => /1 warning/.test(document.querySelector('[data-testid="issue-count"]')?.textContent ?? ""), null, { timeout: 5000 });
+    await t.click('[data-testid="issue-count"]');
+    await t.locator('.cm-panel-lint button:has-text("into the action")').first().click();
+    await t.waitForFunction(() => window.__swText().endsWith("EXT. YARD - NIGHT\n\nRain falls.\n\nMud everywhere."), null, { timeout: 5000 });
+    check("description moves out of the heading, with blank lines", true);
+    await t.keyboard.press("Escape");
+    await snap(t, "check-4-tv.png");
+    // Spelling
+    check("spelling is checked by default", (await t.locator(".cm-content").getAttribute("spellcheck")) === "true");
+    await t.click('[data-testid="spellcheck"]');
+    check("and can be switched off", (await t.locator(".cm-content").getAttribute("spellcheck")) === "false");
+    check("no browser errors (tv)", s3.errors.length === 0, s3.errors.join(" | "));
   } catch (e) {
     console.error(e);
     failures++;
@@ -160,6 +210,7 @@ async function open(browser, fixture) {
     await browser.close();
     s1?.server.kill();
     s2?.server.kill();
+    s3?.server.kill();
   }
   console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
   process.exit(failures ? 1 : 0);

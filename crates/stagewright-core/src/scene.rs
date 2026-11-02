@@ -293,7 +293,7 @@ fn is_cue_text(line: &str) -> bool {
 }
 
 /// `ROSALIND (CONT'D)` -> (`ROSALIND`, Some(`CONT'D`)).
-fn strip_extension(line: &str) -> (&str, Option<&str>) {
+pub fn strip_extension(line: &str) -> (&str, Option<&str>) {
     let t = line.trim_end();
     if t.ends_with(')')
         && let Some(open) = t.rfind(" (")

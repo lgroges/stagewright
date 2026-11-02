@@ -67,6 +67,16 @@ pub struct ProjectMeta {
     /// Shown on title pages, e.g. "Draft 9 (May 2024)".
     #[serde(default)]
     pub draft: Option<String>,
+    /// Script check settings, e.g. `checks: {off: [contd-mismatch]}`.
+    #[serde(default)]
+    pub checks: ChecksConfig,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ChecksConfig {
+    /// Check codes switched off for this project.
+    #[serde(default)]
+    pub off: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

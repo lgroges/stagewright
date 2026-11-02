@@ -285,6 +285,26 @@ fn check(p: &Project) -> ExitCode {
     if clashes == 0 {
         println!("  no clashes");
     }
+
+    // Script check
+    let mut ws = stagewright_api::Workspace::new(Some(p.root.clone()));
+    if let Ok(r) = stagewright_api::dispatch(&mut ws, "check_project", serde_json::Value::Null) {
+        let issues = r["issues"].as_array().cloned().unwrap_or_default();
+        println!("\nSCRIPT CHECK ({} warnings, {} notes)", r["warnings"], r["infos"]);
+        for i in &issues {
+            println!(
+                "  {:<8} {:<6} line {:<4} {:<22} {}",
+                if i["severity"] == "warning" { "warning" } else { "note" },
+                i["label"].as_str().unwrap_or(""),
+                i["line"].as_u64().unwrap_or(0) + 1,
+                i["code"].as_str().unwrap_or(""),
+                i["message"].as_str().unwrap_or("")
+            );
+        }
+        if issues.is_empty() {
+            println!("  nothing to report");
+        }
+    }
     if clashes > 0 {
         ExitCode::from(1)
     } else {

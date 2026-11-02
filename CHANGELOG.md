@@ -7,6 +7,21 @@ change, the cursor, is listed under 0.3.0.)
 
 ## Unreleased
 
+- **Script check.** As you write, likely mistakes are underlined (wavy) and
+  conventions noted (dotted); point at one to see why, and fix it in one click where
+  the fix is certain. The status bar counts them (click to list them; F8 goes to the
+  next). Production lists every issue in the play, and clicking one shows its line.
+  - Warnings: a cue with a blank line after it (so the speech reads as action), a cue
+    not in capitals, a cue or singer that isn't in the cast list ("did you mean…?"), a
+    song never closed, ~ END SONG with no song, a parenthetical missing its ")", and
+    dual dialogue (^) with nothing beside it.
+  - Notes: (CONT'D) after a different speaker, someone "on stage but silent" who
+    speaks, lyrics outside a song; in film and TV, headings with no time of day or a
+    misspelt one (NITE), INT without a full stop, scenes not starting with a heading,
+    and a character's first appearance in the action not in capitals.
+  - Any check can be switched off for a project ("Don't check for this", or Checks…
+    in Production); the setting is kept in project.yaml.
+
 ## 0.3.0 (2026-11-02)
 
 - **Cast** view (next to Production): every character and place, where each appears,

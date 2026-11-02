@@ -96,6 +96,17 @@ and stage directions, typing the first letters of a name in capitals suggests it
 and TV, camera directions (CLOSE ON, POV, PUSH IN …) and, at the start of a line,
 transitions (CUT TO:, FADE OUT. …) are suggested the same way.
 
+**Script check.** As you write, likely mistakes are underlined with a wavy line (a cue
+with a blank line after it, so the speech reads as action; a cue not in capitals or not
+in the cast list, with "did you mean…?"; a song never closed; a parenthetical missing its
+bracket; dual dialogue with nothing beside it) and conventions with a dotted line
+((CONT'D) after a different speaker; in film and TV, a heading with no or a misspelt time
+of day, INT without a full stop, a character's first appearance not in capitals). Point
+at one for the reason and a one-click fix where the fix is certain; the status bar counts
+them (click to list, F8 for the next). **Production** lists every issue in the play.
+Checks can be switched off per project (`checks: {off: [...]}` in project.yaml).
+`stagewright check <dir>` prints the same list.
+
 The **Details** panel edits title (renames the file), status, a manual running time
 (overrides the estimate), location, synopsis, who is on stage but silent, ratings,
 tags and notes. **Production** shows running time (and pages) per scene and act, the
@@ -170,6 +181,7 @@ npm run e2e:cowrite                 # two writers, two folders, one relay
 npm run e2e:screen                  # new TV series, screenplay drafting, export
 npm run e2e:update                  # the update offer, install and restart (Tauri faked)
 npm run e2e:cast                    # Cast view, renames, names suggested in action
+npm run e2e:check                   # script check: underlines, fixes, settings, Production list
 ```
 
 ### Releasing a version

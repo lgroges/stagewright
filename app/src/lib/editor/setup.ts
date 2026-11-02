@@ -39,6 +39,8 @@ import {
   type ElementType,
 } from "./script";
 import { isHeadingText, type Kind } from "../classify";
+import { lintKeymap } from "@codemirror/lint";
+import { countIssues, scriptCheck, type CheckSource } from "./check";
 import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
 import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
@@ -401,6 +403,50 @@ const scriptKeys = Prec.high(
 
 // ------------------------------------------------------------------ theme
 
+/** Script check underlines and tooltips in the app's colours (both themes). */
+const checkTheme = EditorView.theme({
+  ".cm-lintRange-warning": {
+    backgroundImage: "none",
+    textDecoration: "underline wavy var(--warn)",
+    textDecorationSkipInk: "none",
+    textUnderlineOffset: "3px",
+  },
+  ".cm-lintRange-info": {
+    backgroundImage: "none",
+    textDecoration: "underline dotted var(--song)",
+    textDecorationThickness: "2px",
+    textUnderlineOffset: "3px",
+  },
+  ".cm-tooltip.cm-tooltip-hover": {
+    background: "var(--paper)",
+    color: "var(--ink)",
+    border: "1px solid var(--line)",
+    borderRadius: "var(--radius)",
+    boxShadow: "0 6px 20px rgba(0, 0, 0, 0.18)",
+  },
+  ".cm-tooltip-lint": { fontFamily: "var(--ui-font)", fontSize: "13px", lineHeight: "1.4", maxWidth: "380px", padding: "2px 0" },
+  ".cm-diagnostic": { padding: "6px 10px", borderLeftWidth: "3px" },
+  ".cm-diagnosticText": { display: "block" },
+  ".cm-diagnostic-warning": { borderLeftColor: "var(--warn)" },
+  ".cm-diagnostic-info": { borderLeftColor: "var(--song)" },
+  ".cm-diagnosticAction": {
+    background: "var(--panel)",
+    color: "var(--ink)",
+    border: "1px solid var(--line)",
+    borderRadius: "4px",
+    padding: "2px 8px",
+    marginLeft: "0",
+    marginRight: "6px",
+    marginTop: "6px",
+    font: "inherit",
+    fontSize: "12px",
+  },
+  ".cm-diagnosticAction:first-of-type": { background: "var(--accent)", color: "#fff", borderColor: "var(--accent)" },
+  ".cm-diagnosticSource": { display: "none" },
+  ".cm-panel.cm-panel-lint": { background: "var(--panel)", color: "var(--ink)", fontFamily: "var(--ui-font)", fontSize: "13px" },
+  ".cm-panel.cm-panel-lint ul [aria-selected]": { background: "var(--accent-soft)" },
+});
+
 const theme = EditorView.theme({
   "&": { height: "100%", fontSize: "var(--script-size, 15px)" },
   "&.cm-focused": { outline: "none" },
@@ -457,6 +503,10 @@ export function scriptExtensions(opts: {
   onSave: () => void;
   /** When co-writing: bind to the shared text (and use its undo history). */
   shared?: SharedText | null;
+  /** The script check (underlines, fixes). */
+  check?: CheckSource;
+  /** Called when the number of issues shown changes. */
+  onIssues?: (counts: { warnings: number; infos: number }) => void;
 }): Extension[] {
   const shared = opts.shared;
   return [
@@ -492,6 +542,8 @@ export function scriptExtensions(opts: {
     EditorView.updateListener.of((u) => {
       if (u.docChanged) opts.onChange(u.state);
       if (u.docChanged || u.selectionSet) opts.onCursor(u.state);
+      if (opts.onIssues && u.transactions.some((t) => t.effects.length)) opts.onIssues(countIssues(u.state));
     }),
+    opts.check ? [scriptCheck(opts.check), keymap.of(lintKeymap), checkTheme] : [],
   ];
 }

@@ -6,6 +6,7 @@
 //! so renames and reorders cannot break references.
 
 mod cast;
+mod checks;
 mod ops;
 
 pub use ops::{slugify, version_of};
@@ -175,6 +176,19 @@ pub fn dispatch(ws: &mut Workspace, cmd: &str, args: Value) -> ApiResult {
         }
         "act_create" => ops::act_create(&ws.root()?, arg_opt_u32(&args, "episode")),
         "episode_create" => ops::episode_create(&ws.root()?, arg_opt_str(&args, "title").as_deref()),
+        "check_project" => checks::check_project(&ws.root()?),
+        "check_scene" => checks::check_one(&ws.root()?, &arg_str(&args, "id")?, &arg_str(&args, "body")?),
+        "set_check" => checks::set_check(
+            &ws.root()?,
+            &arg_str(&args, "code")?,
+            args.get("on").and_then(Value::as_bool).unwrap_or(true),
+        ),
+        "yaml_set_check" => checks::yaml_set_check(
+            &arg_str(&args, "text")?,
+            &arg_str(&args, "code")?,
+            args.get("on").and_then(Value::as_bool).unwrap_or(true),
+        )
+        .map(|text| serde_json::json!({ "text": text })),
         "cast_view" => cast::cast_view(&ws.root()?),
         "character_save" => cast::character_save(
             &ws.root()?,

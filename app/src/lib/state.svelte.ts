@@ -506,6 +506,34 @@ class AppState {
     if (first) await this.openScene(first.id);
   }
 
+  // -------------------------------------------------------------- script check
+
+  /** Bumps when check settings change, so open editors check again. */
+  checksVersion = $state(0);
+  /** A line to show once its scene is open (from the Production issue list). */
+  goTo = $state<{ id: string; line: number } | null>(null);
+
+  /** Switch a check on or off for this project (shared when co-writing). */
+  async setCheck(code: string, on: boolean) {
+    await this.guard(async () => {
+      if (this.collab) {
+        const text = this.collab.fileText("project.yaml") ?? "";
+        this.collab.setFile("project.yaml", (await api.yamlSetCheck(text, code, on)).text);
+        await this.collab.reconcile();
+      } else {
+        await api.setCheck(code, on);
+      }
+      this.checksVersion++;
+    });
+  }
+
+  /** Open a scene with the cursor on `line` (from 0). */
+  async showLine(id: string, line: number) {
+    this.goTo = { id, line };
+    await this.openScene(id);
+    this.view = { kind: "script" };
+  }
+
   // -------------------------------------------------------------- cast and places
 
   /**

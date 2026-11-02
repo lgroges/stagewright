@@ -1,3 +1,4 @@
+import type { Issue } from "./editor/check";
 // Client for the stagewright-api dispatcher. In the desktop app calls go through
 // Tauri's `api` command; in a browser they go to `stagewright serve` over HTTP.
 // Both reach the same Rust code.
@@ -221,6 +222,29 @@ export interface SharedSceneText {
   onstage_silent: string[];
 }
 
+// ---------------------------------------------------------------- script check
+
+export interface CheckInfo {
+  code: string;
+  name: string;
+  on: boolean;
+}
+
+export interface ProjectIssue extends Issue {
+  scene: string;
+  label: string;
+  title: string;
+  /** The line as it is in the file. */
+  text: string;
+}
+
+export interface ProjectCheck {
+  issues: ProjectIssue[];
+  warnings: number;
+  infos: number;
+  checks: CheckInfo[];
+}
+
 type TauriInternals = { invoke: (cmd: string, args: unknown) => Promise<unknown> };
 
 export const isTauri = (): boolean =>
@@ -295,6 +319,10 @@ export const api = {
     call<ProjectView>("scenes_reorder", { act, ids, episode }),
   actCreate: (episode: number | null = null) => call<ProjectView>("act_create", { episode }),
   episodeCreate: (title?: string) => call<ProjectView>("episode_create", { title }),
+  checkScene: (id: string, body: string) => call<{ issues: Issue[] }>("check_scene", { id, body }),
+  checkProject: () => call<ProjectCheck>("check_project"),
+  setCheck: (code: string, on: boolean) => call<ProjectCheck>("set_check", { code, on }),
+  yamlSetCheck: (text: string, code: string, on: boolean) => call<{ text: string }>("yaml_set_check", { text, code, on }),
   castView: () => call<CastView>("cast_view"),
   characterSave: (id: string | null, entry: Record<string, unknown>) =>
     call<{ cast: CastView; files: Record<string, string> }>("character_save", { id, entry }),

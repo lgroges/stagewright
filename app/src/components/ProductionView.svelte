@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, type Stats, type StatsScene } from "../lib/api";
+  import { api, type ProjectCheck, type Stats, type StatsScene } from "../lib/api";
   import { app } from "../lib/state.svelte";
 
   let stats = $state<Stats | null>(null);
@@ -19,6 +19,36 @@
     }
   }
   onMount(load);
+
+  // ------------------------------------------------------------ script check
+  let check = $state<ProjectCheck | null>(null);
+  let showSettings = $state(false);
+  async function loadCheck() {
+    await app.flush();
+    check = await api.checkProject().catch(() => null);
+  }
+  $effect(() => {
+    void app.checksVersion;
+    void app.project;
+    void loadCheck();
+  });
+  const visibleIssues = $derived(
+    (check?.issues ?? []).filter((i) => episode === null || stats?.scenes.find((s) => s.id === i.scene)?.episode === episode),
+  );
+  /** Issues grouped by scene, in running order. */
+  const byScene = $derived.by(() => {
+    const groups: { scene: string; label: string; title: string; issues: typeof visibleIssues }[] = [];
+    for (const i of visibleIssues) {
+      const last = groups.at(-1);
+      if (last && last.scene === i.scene) last.issues.push(i);
+      else groups.push({ scene: i.scene, label: i.label, title: i.title, issues: [i] });
+    }
+    return groups;
+  });
+  const counted = $derived({
+    warnings: visibleIssues.filter((i) => i.severity === "warning").length,
+    infos: visibleIssues.filter((i) => i.severity === "info").length,
+  });
 
   const screen = $derived(stats ? stats.format !== "stage" : false);
   const scenes = $derived((stats?.scenes ?? []).filter((s) => episode === null || s.episode === episode));
@@ -70,6 +100,51 @@
     <button class="ghost" onclick={load}>Refresh</button>
   </div>
   {#if err}<p class="err">{err}</p>{/if}
+
+  {#if check}
+    <section aria-label="Script check" data-testid="script-check">
+      <h3>
+        Script check
+        <span class="muted">
+          · {#if counted.warnings || counted.infos}{counted.warnings} {counted.warnings === 1 ? "warning" : "warnings"},
+            {counted.infos} {counted.infos === 1 ? "note" : "notes"}{:else}nothing to report{/if}
+        </span>
+        <button class="ghost small" onclick={() => (showSettings = !showSettings)} aria-expanded={showSettings}>Checks…</button>
+      </h3>
+      <p class="muted small">
+        Warnings are probably mistakes (the script reads differently from what you meant); notes are conventions. The same
+        checks underline the script as you write.
+      </p>
+      {#if showSettings}
+        <ul class="settings">
+          {#each check.checks as c (c.code)}
+            <li>
+              <label>
+                <input type="checkbox" checked={c.on} onchange={(e) => app.setCheck(c.code, e.currentTarget.checked)} />
+                {c.name}
+              </label>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      {#each byScene as g (g.scene)}
+        <div class="check-scene">
+          <div class="check-head"><strong>{g.label}</strong> {g.title}</div>
+          <ul>
+            {#each g.issues as i}
+              <li class={i.severity}>
+                <button class="ghost link" onclick={() => app.showLine(i.scene, i.line)} title="Show in the script">
+                  <span class="sev">{i.severity === "warning" ? "⚠" : "•"}</span>
+                  <span class="msg">{i.message}</span>
+                  <span class="line muted">{i.text.trim() ? i.text.trim() : "(blank line)"}</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        </div>
+      {/each}
+    </section>
+  {/if}
 
   {#if stats}
     <section>
@@ -343,5 +418,56 @@
   }
   .err {
     color: var(--bad);
+  }
+  .settings {
+    list-style: none;
+    padding: 6px 0;
+    margin: 0 0 8px;
+    columns: 2;
+    font-size: 13px;
+  }
+  .settings li {
+    padding: 2px 0;
+  }
+  .check-scene {
+    margin: 6px 0 10px;
+    max-width: 960px;
+  }
+  .check-head {
+    font-size: 13px;
+    margin-bottom: 2px;
+  }
+  .check-scene ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .check-scene li .link {
+    white-space: normal;
+    align-items: baseline;
+    display: grid;
+    grid-template-columns: 1.4em minmax(0, 1fr) minmax(0, 0.8fr);
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    padding: 3px 6px;
+    font-size: 13px;
+    border-radius: 4px;
+  }
+  .check-scene li .link:hover {
+    background: var(--panel);
+  }
+  .check-scene .warning .sev {
+    color: var(--warn);
+  }
+  .check-scene .info .sev {
+    color: var(--song);
+  }
+  .check-scene .line {
+    font-family: var(--script-font);
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 </style>

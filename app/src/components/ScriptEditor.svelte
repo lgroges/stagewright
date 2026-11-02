@@ -6,6 +6,9 @@
   import { scriptExtensions, ELEMENT_KEYS, applyElement } from "../lib/editor/setup";
   import { info, toolbarElement, stanzaBreak, asCommand, type ElementType } from "../lib/editor/script";
   import { liveStats } from "../lib/classify";
+  import { openLintPanel } from "@codemirror/lint";
+  import { recheck } from "../lib/editor/check";
+  import { api } from "../lib/api";
 
   let host: HTMLDivElement;
   let view: EditorView | null = null;
@@ -18,6 +21,7 @@
   let lyricLines = $state(0);
   let speakers = $state(0);
   let showKeys = $state(false);
+  let issues = $state({ warnings: 0, infos: 0 });
 
   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
   const keyLabel = (k: string) => k.replace("Mod-", isMac ? "⌘" : "Ctrl+").replace("Shift-", isMac ? "⇧" : "Shift+");
@@ -56,6 +60,16 @@
         },
         onCursor: (s) => (active = toolbarElement(s)),
         onSave: () => void app.flush(),
+        check: {
+          check: async (body) => {
+            const sc = app.scene;
+            return sc ? (await api.checkScene(sc.id, body)).issues : null;
+          },
+          off: (code) => void app.setCheck(code, false),
+        },
+        onIssues: (n) => {
+          if (n.warnings !== issues.warnings || n.infos !== issues.infos) issues = n;
+        },
       }),
     });
   }
@@ -76,6 +90,7 @@
       state = cached && cached.doc.toString() === sc.body ? cached : makeState(sc.body);
     }
     view.setState(state);
+    issues = { warnings: 0, infos: 0 };
     shownToken = sc.loadToken;
     shownId = sc.id;
     measure(state);
@@ -101,6 +116,30 @@
     void app.scene?.loadToken;
     show();
   });
+
+  $effect(() => {
+    void app.goTo;
+    void app.scene?.loadToken;
+    jump();
+  });
+
+  // Check again when the check settings or the cast list change.
+  $effect(() => {
+    void app.checksVersion;
+    void app.project?.cues;
+    if (view) view.dispatch({ effects: recheck.of(null) });
+  });
+
+  /** Go to a line asked for elsewhere (the Production issue list). */
+  function jump() {
+    const g = app.goTo;
+    if (!view || !g || g.id !== app.scene?.id) return;
+    app.goTo = null;
+    const n = Math.min(g.line + 1, view.state.doc.lines);
+    const line = view.state.doc.line(n);
+    view.dispatch({ selection: { anchor: line.from, head: line.to }, scrollIntoView: true });
+    view.focus();
+  }
 
   const minutes = $derived.by(() => {
     const rt = app.project?.running_time ?? { words_per_minute: 150, seconds_per_lyric_line: 6 };
@@ -191,6 +230,19 @@
       <span title="Estimated from spoken words{app.scene?.meta.duration ? '; a manual duration is set in Details' : ''}">
         ≈ {minutes.toFixed(1)} min{app.scene?.meta.duration ? ` (set: ${app.scene.meta.duration})` : ""}
       </span>
+    {/if}
+    {#if issues.warnings || issues.infos}
+      <button
+        class="ghost issues"
+        class:warn={issues.warnings > 0}
+        title="Show the script check's notes for this scene (F8 goes to the next one)"
+        onclick={() => view && openLintPanel(view)}
+        data-testid="issue-count"
+      >
+        {#if issues.warnings}⚠ {issues.warnings} {issues.warnings === 1 ? "warning" : "warnings"}{/if}
+        {#if issues.warnings && issues.infos}·{/if}
+        {#if issues.infos}{issues.infos} {issues.infos === 1 ? "note" : "notes"}{/if}
+      </button>
     {/if}
     <span class="file muted">{app.scene?.summary.file}</span>
   </footer>
@@ -297,6 +349,15 @@
     border-top: 1px solid var(--line);
     background: var(--panel);
     font-variant-numeric: tabular-nums;
+  }
+  .issues {
+    padding: 0 6px;
+    font-size: 12px;
+    color: var(--song);
+  }
+  .issues.warn {
+    color: var(--warn);
+    font-weight: 600;
   }
   .file {
     margin-left: auto;

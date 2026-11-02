@@ -2,6 +2,7 @@
 
 pub mod analysis;
 pub mod cast;
+pub mod check;
 pub mod export;
 pub mod frontmatter;
 pub mod layout;

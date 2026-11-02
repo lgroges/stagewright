@@ -6,6 +6,8 @@ version when it offers the update. Add to **Unreleased** as you go;
 
 ## Unreleased
 
+## 0.2.1 (2026-11-02)
+
 - Delete an act or a whole episode from the scene tree (the bin button that appears
   when you point at its heading). Its scenes go to the project's `.trash` folder, and
   later acts or episodes move up to close the gap. Works while co-writing too.

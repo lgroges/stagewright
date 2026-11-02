@@ -7,6 +7,8 @@ change, the cursor, is listed under 0.3.0.)
 
 ## Unreleased
 
+## 0.3.0 (2026-11-02)
+
 - **Cast** view (next to Production): every character and place, where each appears,
   and the lists in characters.yaml and locations.yaml, edited in place: name,
   description, the actor (track) for doubling.

@@ -179,7 +179,33 @@ export interface CueSource {
   cues: () => string[];
   /** Locations used in scene headings across the project. */
   places?: () => string[];
+  /** Film or TV: camera directions and transitions are suggested in action too. */
+  screen?: () => boolean;
 }
+
+/** Shots, angles and camera moves, written in capitals in screenplay action. */
+export const CAMERA_TERMS = [
+  "ANGLE ON", "CLOSE ON", "CLOSE UP", "EXTREME CLOSE UP", "MEDIUM SHOT", "WIDE SHOT", "ESTABLISHING SHOT",
+  "TWO SHOT", "OVER THE SHOULDER", "POV", "REVERSE ANGLE", "INSERT", "BACK TO SCENE", "AERIAL SHOT",
+  "TRACKING SHOT", "MOVING SHOT", "HANDHELD", "PAN TO", "TILT UP", "TILT DOWN", "PUSH IN", "PULL BACK",
+  "PULL BACK TO REVEAL", "DOLLY IN", "DOLLY OUT", "ZOOM IN", "ZOOM OUT", "CRANE UP", "CRANE DOWN",
+  "RACK FOCUS", "SLOW MOTION", "FREEZE FRAME", "SPLIT SCREEN", "MONTAGE", "END MONTAGE", "SERIES OF SHOTS",
+  "FLASHBACK", "END FLASHBACK", "INTERCUT", "SUPER:", "TITLE CARD:", "OFF SCREEN", "ON SCREEN",
+];
+
+/**
+ * Transitions, offered only at the start of a line. Those ending "TO:" are
+ * recognised on their own line; the others are written as forced transitions
+ * ("> FADE OUT.") so they sit on the right like the rest.
+ */
+export const TRANSITIONS: { label: string; apply: string }[] = [
+  ...["CUT TO:", "SMASH CUT TO:", "MATCH CUT TO:", "JUMP CUT TO:", "DISSOLVE TO:", "WIPE TO:", "INTERCUT WITH:"].map(
+    (t) => ({ label: t, apply: t.endsWith("TO:") ? t : `> ${t}` }),
+  ),
+  { label: "FADE IN:", apply: "FADE IN:" },
+  { label: "FADE OUT.", apply: "> FADE OUT." },
+  { label: "FADE TO BLACK.", apply: "> FADE TO BLACK." },
+];
 
 const SETTINGS = ["INT. ", "EXT. ", "INT./EXT. "];
 const TIMES = ["DAY", "NIGHT", "MORNING", "AFTERNOON", "EVENING", "DAWN", "DUSK", "CONTINUOUS", "LATER", "MOMENTS LATER"];
@@ -225,29 +251,57 @@ function headingCompletion(source: CueSource) {
 
 /**
  * Character names in action / stage directions, where they are written in
- * capitals ("HETTIE crosses to the window"). Starts after two capitals; a name
- * typed in full closes the list, so Enter still starts a new paragraph.
+ * capitals ("HETTIE crosses to the window"), and in film and TV camera
+ * directions and transitions too. Starts after two capitals; a word typed in
+ * full closes the list, so Enter still starts a new paragraph.
  */
 function actionNameCompletion(source: CueSource) {
   return (ctx: CompletionContext) => {
     if (kindAt(ctx.state, ctx.pos) !== "direction") return null;
     const line = ctx.state.doc.lineAt(ctx.pos);
     const before = line.text.slice(0, ctx.pos - line.from);
-    const m = before.match(/(?:^|[^\p{L}\p{N}_])([A-Z][A-Z0-9'’.-]+)$/u);
+    // The run of capitals before the cursor ("FADE O", "ANGLE ON", "HETT").
+    const m = before.match(/(?:^|[^\p{L}\p{N}_])([A-Z][A-Z0-9'’.: -]*)$/u);
     if (!m) return null;
-    const typed = m[1];
+    const run = m[1];
+    const runFrom = ctx.pos - run.length;
     const names = [...new Set([...source.cues(), ...docCues(ctx.state, -1)])].filter(Boolean);
-    if (names.includes(typed)) return null;
-    const options = names
-      .filter((n) => n.startsWith(typed))
-      .sort()
-      .map((label) => ({ label, type: "variable" }));
+    const screen = source.screen?.() ?? false;
+    const camera = screen ? CAMERA_TERMS : [];
+    const transitionsAt = (from: number) => (screen && from === line.from ? TRANSITIONS : []);
+    // The longest tail of the run, starting at a word, that begins some name or term.
+    let typed = "";
+    for (let i = 0; i < run.length; i++) {
+      if (i > 0 && run[i - 1] !== " ") continue;
+      const t = run.slice(i);
+      if (t.replace(/[^A-Z0-9]/g, "").length < 2 || t.startsWith(" ")) continue;
+      const pool = [...names, ...camera, ...transitionsAt(runFrom + i).map((x) => x.label)];
+      if (pool.some((n) => n.startsWith(t))) {
+        typed = t;
+        break;
+      }
+    }
+    if (!typed) return null;
+    const from = ctx.pos - typed.length;
+    const transitions = transitionsAt(from);
+    const all = [...names, ...camera, ...transitions.map((t) => t.label)];
+    // A word or term just typed in full ("POV", "CLOSE ON") closes the list.
+    const done = (t: string) =>
+      before.endsWith(t) && (before.length === t.length || !/[\p{L}\p{N}_]/u.test(before[before.length - t.length - 1]));
+    if (all.some(done)) return null;
+    const options: Completion[] = [
+      ...names.filter((n) => n.startsWith(typed)).sort().map((label) => ({ label, type: "variable", boost: 2 })),
+      ...camera.filter((c) => c.startsWith(typed)).map((label) => ({ label, type: "keyword", detail: "camera" })),
+      ...transitions
+        .filter((t) => t.label.startsWith(typed))
+        .map((t) => ({ label: t.label, apply: t.apply, type: "keyword", detail: "transition" })),
+    ];
     if (!options.length) return null;
     return {
-      from: ctx.pos - typed.length,
+      from,
       options,
-      // Keep the list while the typing still could be one of these names.
-      validFor: (text: string) => /^[A-Z0-9'’. -]*$/.test(text) && !names.includes(text) && names.some((n) => n.startsWith(text)),
+      // Keep the list while the typing still could be one of these.
+      validFor: (text: string) => /^[A-Z0-9'’.: -]*$/.test(text) && !all.includes(text) && all.some((n) => n.startsWith(text)),
     };
   };
 }

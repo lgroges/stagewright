@@ -20,6 +20,9 @@ change, the cursor, is listed under 0.3.0.)
     heading that uses it.
 - Character names are suggested in action and stage directions: type the first
   letters of a name in capitals.
+- Film and TV: camera directions (CLOSE ON, ANGLE ON, POV, PUSH IN, SLOW MOTION …)
+  are suggested in action the same way, and at the start of a line transitions too
+  (CUT TO:, DISSOLVE TO:, FADE OUT. …).
 - The text cursor is easier to see: white and thicker in dark mode (dark on the light
   theme), in the script and in project files.
 

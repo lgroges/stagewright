@@ -45,7 +45,11 @@
       doc: shared ? shared.text.toString() : body,
       extensions: scriptExtensions({
         shared,
-        cues: { cues: () => app.project?.cues ?? [], places: () => app.project?.heading_locations ?? [] },
+        cues: {
+          cues: () => app.project?.cues ?? [],
+          places: () => app.project?.heading_locations ?? [],
+          screen: () => (app.project?.format ?? "stage") !== "stage",
+        },
         onChange: (s) => {
           app.bodyChanged(s.doc.toString());
           measure(s);

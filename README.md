@@ -92,7 +92,9 @@ missing from the list are flagged, with one click to add them. **Rename…** cha
 character everywhere (cues, song singers, mentions in the action, the lists; dialogue
 is left as spoken) or a place in every scene heading, after a preview of what will
 change; renaming onto a name already in the script joins the two (for typos). In action
-and stage directions, typing the first letters of a name in capitals suggests it.
+and stage directions, typing the first letters of a name in capitals suggests it; in film
+and TV, camera directions (CLOSE ON, POV, PUSH IN …) and, at the start of a line,
+transitions (CUT TO:, FADE OUT. …) are suggested the same way.
 
 The **Details** panel edits title (renames the file), status, a manual running time
 (overrides the estimate), location, synopsis, who is on stage but silent, ratings,

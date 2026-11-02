@@ -93,6 +93,29 @@ function check(name, ok, detail = "") {
     const status = await page.locator(".status").textContent();
     check("status bar shows pages", /\d\/8|\bpp\b|pages?/.test(status), status);
 
+    // 2b. Camera directions and transitions are suggested in action
+    await page.click(".cm-content");
+    await kb.press("Control+End");
+    await kb.press("Enter");
+    await kb.type("CLO");
+    await page.waitForSelector(".cm-tooltip-autocomplete li:has-text('CLOSE ON')");
+    check("camera directions are offered, marked as such", (await page.locator(".cm-tooltip-autocomplete").textContent()).includes("camera"));
+    await kb.press("Enter");
+    await kb.type(" the lamp. ANGLE ON");
+    await kb.press("Enter"); // typed in full: a new paragraph, not "ON SCREEN"
+    await kb.type("CU");
+    await page.waitForSelector(".cm-tooltip-autocomplete li:has-text('CUT TO:')");
+    await kb.press("Enter");
+    await kb.press("Enter"); // after a transition: a new paragraph
+    await kb.type("FADE O");
+    await page.waitForSelector(".cm-tooltip-autocomplete li:has-text('FADE OUT.')");
+    await kb.press("Enter");
+    await saved();
+    const tail = (await text()).split("She turns off the light.")[1];
+    check("camera terms and transitions are written as intended", tail === "\n\nCLOSE ON the lamp. ANGLE ON\n\nCUT TO:\n\n> FADE OUT.", JSON.stringify(tail));
+    const kinds2 = JSON.parse(execFileSync(bin, ["classify", file]).toString())[path.basename(file)].filter((k) => k !== "blank");
+    check("CUT TO: and FADE OUT. read as transitions", JSON.stringify(kinds2.slice(-3)) === JSON.stringify(["direction", "transition", "transition"]), JSON.stringify(kinds2));
+
     // 3. Add an episode
     await page.click("text=+ Add episode");
     await page.waitForFunction(() => document.querySelectorAll(".episode-head").length === 2);

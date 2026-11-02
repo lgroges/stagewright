@@ -76,6 +76,9 @@ async function open(browser, fixture, edit) {
     await kb.press("Enter");
     await kb.type("The end");
     check("ordinary capitalised words get no list", (await page.locator(".cm-tooltip-autocomplete").count()) === 0);
+    await kb.type(". CLO");
+    await page.waitForTimeout(300);
+    check("a stage play is not offered camera directions", (await page.locator(".cm-tooltip-autocomplete").count()) === 0);
 
     // 2. Cast view: the typo is flagged, and renamed onto the right name
     await views("Cast");

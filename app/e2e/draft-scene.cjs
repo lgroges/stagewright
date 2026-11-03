@@ -169,11 +169,20 @@ function check(name, ok, detail = "") {
     check("duration written to frontmatter", /\nduration: 6  # manual override, minutes\n/.test(fs.readFileSync(path.join(act2(), findFile(/the-confession/)), "utf8")));
 
     // 5. Move it to the top of Act Two with the keyboard-accessible buttons
+    const position = () =>
+      page.evaluate(() => {
+        const li = [...document.querySelectorAll("[data-scene-id]")].find((e) => e.textContent.includes("The confession"));
+        return li ? [...li.parentElement.children].indexOf(li) : -1;
+      });
     for (let i = 0; i < 4; i++) {
+      const before = await position();
       await page.hover(`[data-scene-id] >> text=The confession`);
       await page.click(`[aria-label="Move The confession up"]`);
-      await page.waitForTimeout(150);
+      // Wait for the move to land before the next one (slow machines take a while).
+      for (let t = 0; t < 50 && (await position()) === before; t++) await page.waitForTimeout(100);
     }
+    // The moves are saved one after another; give a slow machine time to finish them.
+    for (let t = 0; t < 50 && !findFile(/^010-the-confession\.scene$/); t++) await page.waitForTimeout(100);
     check("moved to the top of the act", !!findFile(/^010-the-confession\.scene$/), fs.readdirSync(act2()).join(","));
     check("other scenes renumbered", !!findFile(/^050-outside-the-lighthouse\.scene$/), fs.readdirSync(act2()).join(","));
 

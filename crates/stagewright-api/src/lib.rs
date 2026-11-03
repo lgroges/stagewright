@@ -7,6 +7,7 @@
 
 mod cast;
 mod checks;
+mod comments;
 mod ops;
 
 pub use ops::{slugify, version_of};
@@ -264,6 +265,11 @@ pub fn dispatch(ws: &mut Workspace, cmd: &str, args: Value) -> ApiResult {
         .map(|text| serde_json::json!({ "text": text })),
         "yaml_remove_episode" => ops::yaml_remove_episode(&arg_str(&args, "text")?, arg_u32(&args, "episode")?)
             .map(|text| serde_json::json!({ "text": text })),
+        "comments_list" => comments::list(&ws.root()?),
+        "comment_edit" => comments::edit(&ws.root()?, &args),
+        // Co-writing: the same over the shared comments.yaml text.
+        "comments_parse" => comments::parse_text(&arg_str(&args, "text")?),
+        "comment_edit_text" => comments::edit_text(&arg_str(&args, "text")?, &args),
         "stats" => ops::stats(&ws.root()?),
         "file_read" => ops::file_read(&ws.root()?, &arg_str(&args, "name")?),
         "file_save" => ops::file_save(

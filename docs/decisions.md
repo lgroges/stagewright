@@ -4,6 +4,27 @@ Choices made about Stagewright and why, newest first. Each entry: what we chose,
 the reason, and what we didn't do. Ideas still open or turned down are in
 [ideas.md](ideas.md).
 
+## 2026-11-03 · Comments: threads in a separate file
+
+Comments work like Google Docs: a thread on a selected passage, with replies, edit
+and delete for your own messages, and resolve (hidden, kept, reopened by a reply).
+
+- **Kept in `comments.yaml`, not in the scene files.** The script stays clean, exports
+  and other Fountain apps never see comments, and threads can hold replies, names,
+  times and a resolved flag. We didn't use Fountain's `[[notes]]` in the text, which
+  other apps keep but which clutter the script and can't hold threads.
+- **Pinned by quote and context**: the quoted passage, 40 characters either side, and a
+  line hint. When a scene opens each comment is located; while it's open the highlight
+  follows every edit, and the new quote is stored when it moves. If the passage is
+  edited outside the app, a close match is found; if it's deleted, the comment stays,
+  marked detached. We didn't store character offsets, which break with any edit made
+  elsewhere.
+- **Co-writing shares `comments.yaml` like the other project files**, so it needed no
+  change to the shared document's format. Ids and times are made by the writer's app,
+  so every machine writes the same file.
+- **The author is the co-writing name**, or a name asked for once and remembered.
+- Suggested edits (Docs' "suggesting" mode) were left out for now (see ideas.md).
+
 ## 2026-11-03 · Format rules from the BBC Writersroom guides
 
 The script check follows the BBC format guides (screenplay, TV screenplay, taped

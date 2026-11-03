@@ -20,6 +20,37 @@ export class ApiError extends Error {
 
 export type Format = "stage" | "film" | "tv-single" | "tv-multi";
 
+/** A comment thread, pinned to a passage of one scene (comments.yaml). */
+export interface CommentMessage {
+  author: string;
+  at: string;
+  text: string;
+  edited?: string | null;
+}
+
+export interface CommentAnchor {
+  id: string;
+  quote: string;
+  before: string;
+  after: string;
+  line: number;
+}
+
+export interface Comment extends CommentAnchor {
+  scene: string;
+  resolved: boolean;
+  messages: CommentMessage[];
+}
+
+export type CommentOp =
+  | { op: "add"; id: string; scene: string; quote: string; before: string; after: string; line: number; author: string; at: string; text: string }
+  | { op: "reply"; id: string; author: string; at: string; text: string }
+  | { op: "edit"; id: string; index: number; text: string; at: string }
+  | { op: "delete_message"; id: string; index: number }
+  | { op: "delete"; id: string }
+  | { op: "resolve"; id: string; resolved: boolean }
+  | { op: "anchor"; anchors: CommentAnchor[] };
+
 export const FORMATS: { id: Format; label: string }[] = [
   { id: "stage", label: "Stage play" },
   { id: "film", label: "Film screenplay" },
@@ -356,6 +387,10 @@ export const api = {
   exportScript: (kind: "pdf" | "fountain", episode: number | null, path?: string) =>
     call<{ name: string; pages: number | null; base64?: string; path?: string }>("export", { kind, episode, path }),
   stats: () => call<Stats>("stats"),
+  commentsList: () => call<{ comments: Comment[] }>("comments_list"),
+  commentEdit: (op: CommentOp) => call<{ comments: Comment[]; text: string }>("comment_edit", { op }),
+  commentsParse: (text: string) => call<{ comments: Comment[] }>("comments_parse", { text }),
+  commentEditText: (text: string, op: CommentOp) => call<{ comments: Comment[]; text: string }>("comment_edit_text", { text, op }),
   fileRead: (name: string) => call<ProjectFile>("file_read", { name }),
   fileSave: (name: string, text: string, base_version: string) =>
     call<ProjectFile>("file_save", { name, text, base_version }),

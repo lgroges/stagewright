@@ -119,6 +119,12 @@
     confirmTrash = null;
     await app.trashScene(id);
   }
+  /** Open (unresolved) comments per scene. */
+  const openComments = $derived.by(() => {
+    const m = new Map<string, number>();
+    for (const c of app.comments) if (!c.resolved) m.set(c.scene, (m.get(c.scene) ?? 0) + 1);
+    return m;
+  });
 </script>
 
 <div class="tree" role="tree" aria-label={app.project?.series ? "Episodes, acts and scenes" : "Acts and scenes"}>
@@ -242,6 +248,11 @@
                   {screen && !s.manual_duration ? s.pages : mins(s.minutes)}{s.manual_duration ? "*" : ""}
                 </span>
                 <span class="marks">
+                  {#if openComments.get(s.id)}
+                    <span class="talk" title="{openComments.get(s.id)} open {openComments.get(s.id) === 1 ? 'comment' : 'comments'}" data-testid="scene-comments"
+                      >💬{openComments.get(s.id)}</span
+                    >
+                  {/if}
                   {#each app.collab?.peers.filter((p) => p.scene === s.id) ?? [] as p (p.clientId)}
                     <span class="peer" style="background:{p.color}" title="{p.name} is here"></span>
                   {/each}
@@ -524,5 +535,11 @@
   }
   .foot {
     padding: 6px 8px;
+  }
+  .talk {
+    font-size: 10.5px;
+    color: var(--ink-2);
+    font-variant-numeric: tabular-nums;
+    margin-right: 2px;
   }
 </style>

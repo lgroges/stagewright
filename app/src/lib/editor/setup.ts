@@ -2,6 +2,7 @@
 // keys, cue autocompletion and upper-casing.
 
 import { EditorState, Prec, RangeSetBuilder, StateEffect, StateField, type Extension } from "@codemirror/state";
+import { comments } from "./comments";
 import {
   Decoration,
   EditorView,
@@ -611,6 +612,10 @@ export function scriptExtensions(opts: {
   autoContd?: () => boolean;
   /** The system spellchecker, on at the start. */
   spellcheck?: boolean;
+  /** Comments: highlights, and the comment under the cursor. */
+  onComment?: (id: string | null) => void;
+  /** Start a comment on the selection (Ctrl+Alt+M, as in Google Docs). */
+  onNewComment?: () => void;
 }): Extension[] {
   const shared = opts.shared;
   return [
@@ -638,6 +643,7 @@ export function scriptExtensions(opts: {
     scriptKeys,
     keymap.of([
       { key: "Mod-s", run: () => (opts.onSave(), true), preventDefault: true },
+      ...(opts.onNewComment ? [{ key: "Mod-Alt-m", run: () => (opts.onNewComment!(), true), preventDefault: true }] : []),
       ...(shared ? [] : historyKeymap),
       ...searchKeymap,
       ...defaultKeymap,
@@ -651,5 +657,6 @@ export function scriptExtensions(opts: {
     opts.check ? [scriptCheck(opts.check), keymap.of(lintKeymap), checkTheme] : [],
     opts.autoContd ? contdLabels(opts.autoContd) : [],
     spelling(opts.spellcheck ?? true),
+    opts.onComment ? comments(opts.onComment) : [],
   ];
 }

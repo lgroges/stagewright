@@ -20,7 +20,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const PROJECT_FILES: &[&str] = &["project.yaml", "characters.yaml", "locations.yaml", "songs.yaml"];
+pub const PROJECT_FILES: &[&str] = &[
+    "project.yaml",
+    "characters.yaml",
+    "locations.yaml",
+    "songs.yaml",
+    "comments.yaml",
+];
 
 const STATUSES: &[&str] = &["outline", "draft", "first-edit", "second-edit", "done"];
 
@@ -675,6 +681,9 @@ pub fn file_save(root: &Path, name: &str, text: &str, base_version: &str) -> Api
         "project.yaml" => check(serde_yaml::from_str::<ProjectMeta>(&text).map(|_| ()))?,
         "characters.yaml" => check(serde_yaml::from_str::<Vec<Character>>(&text).map(|_| ()))?,
         "locations.yaml" => check(serde_yaml::from_str::<Vec<Location>>(&text).map(|_| ()))?,
+        "comments.yaml" => stagewright_core::comments::parse(&text)
+            .map(|_| ())
+            .map_err(|e| ApiError::new("invalid_yaml", e))?,
         _ => check(serde_yaml::from_str::<serde_yaml::Value>(&text).map(|_| ()))?,
     }
     write_atomic(&path, &text)?;

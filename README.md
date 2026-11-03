@@ -128,13 +128,23 @@ contact details: `contact:` in project.yaml, printed bottom left. The editor als
 (`checks: {off: [...]}` in project.yaml).
 `stagewright check <dir>` prints the same list.
 
+**Comments.** Select some text and press **Comment** (Ctrl+Alt+M) to comment on it, as
+in Google Docs. The passage is highlighted, and the comments panel (💬 above the script)
+lists the scene's threads in script order: reply, edit or delete your own messages, and
+resolve a thread to hide it (Show resolved brings it back; replying reopens it). The
+scene list counts each scene's open comments. Comments live in `comments.yaml`, never in
+the scene files, so exports and other apps don't see them. Each is pinned to its quoted
+text with a little context either side, so it follows the text as you edit; if the text
+is deleted, the comment stays, marked as detached. When co-writing, comments are shared
+live, under each writer's name.
+
 The **Details** panel edits title (renames the file), status, a manual running time
 (overrides the estimate), location, synopsis, who is on stage but silent, ratings,
 tags and notes. **Production** shows running time (and pages) per scene and act, the
 cast-by-scene table, doubling problems for stage, and for film and TV a scene breakdown:
 every heading's INT/EXT, location, time of day, pages and cast. In a series it shows
 one episode or all of them. **Project files** edits `project.yaml`, `characters.yaml`
-(set each role's `track` for doubling), `locations.yaml` and `songs.yaml`; invalid YAML
+(set each role's `track` for doubling), `locations.yaml`, `songs.yaml` and `comments.yaml`; invalid YAML
 is refused with the reason.
 
 Deleted scenes go to the project's `.trash/` folder, not the bin.

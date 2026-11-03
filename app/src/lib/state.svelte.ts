@@ -7,6 +7,8 @@ import {
   ApiError,
   callLate,
   isTauri,
+  type Comment,
+  type CommentOp,
   type Format,
   type ProjectView,
   type RenameResult,
@@ -86,6 +88,15 @@ class AppState {
   collab = $state<CollabSession | null>(null);
   relay = $state(readPref(RELAY_KEY, DEFAULT_RELAY));
   writerName = $state(readPref(NAME_KEY, ""));
+  /** Comments on the script (comments.yaml), every scene's. */
+  comments = $state<Comment[]>([]);
+  /** The comments panel beside the script. */
+  commentsOpen = $state(readPref("stagewright.comments", "0") === "1");
+  showResolved = $state(false);
+  /** The comment picked in the script or the panel. */
+  activeComment = $state<string | null>(null);
+  /** comments.yaml as last read from the shared doc, when co-writing. */
+  private commentsText: string | null = null;
 
   private pendingBody: string | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -119,6 +130,8 @@ class AppState {
     this.project = view;
     this.remember(view.root);
     this.loadFolded();
+    this.commentsText = null;
+    this.activeComment = null;
     this.scene = null;
     this.view = { kind: "script" };
     if (resumeSharing) {
@@ -127,8 +140,78 @@ class AppState {
         this.collab = await CollabSession.resume(saved.config, saved, (v) => this.onSharedProject(v), () => this.onSharedChange());
       }
     }
+    await this.loadComments();
     const first = view.acts.flatMap((a) => a.scenes)[0];
     if (first) await this.openScene(first.id);
+  }
+
+  // -------------------------------------------------------------- comments
+
+  /** The name on comments: the co-writing name, or the one given here. */
+  get author(): string {
+    return this.collab?.config.name || this.writerName;
+  }
+
+  setAuthor(name: string) {
+    this.writerName = name.trim();
+    writePref(NAME_KEY, this.writerName);
+  }
+
+  toggleComments(open = !this.commentsOpen) {
+    this.commentsOpen = open;
+    writePref("stagewright.comments", open ? "1" : "0");
+  }
+
+  async loadComments() {
+    if (this.collab) return this.readSharedComments();
+    try {
+      this.comments = (await api.commentsList()).comments;
+    } catch {
+      this.comments = [];
+    }
+  }
+
+  /**
+   * The shared comments.yaml. A play shared before comments existed may have
+   * one on disk but not in the shared doc: share it rather than start empty.
+   */
+  private async sharedCommentsText(): Promise<string> {
+    const c = this.collab!;
+    const t = c.fileText("comments.yaml");
+    if (t !== null) return t;
+    const disk = (await api.fileRead("comments.yaml").catch(() => null))?.text ?? "";
+    if (disk.trim() && c.fileText("comments.yaml") === null) c.setFile("comments.yaml", disk);
+    return c.fileText("comments.yaml") ?? disk;
+  }
+
+  private async readSharedComments() {
+    if (!this.collab) return;
+    const text = await this.sharedCommentsText();
+    if (text === this.commentsText) return;
+    this.commentsText = text;
+    try {
+      this.comments = (await api.commentsParse(text)).comments;
+    } catch {
+      /* mid-merge: keep the last good list until the next change */
+    }
+  }
+
+  /** Change the comments: in comments.yaml, or in the shared copy when co-writing. */
+  async editComments(op: CommentOp): Promise<boolean> {
+    let ok = false;
+    await this.guard(async () => {
+      if (this.collab) {
+        const r = await api.commentEditText(await this.sharedCommentsText(), op);
+        this.collab.setFile("comments.yaml", r.text);
+        this.commentsText = r.text;
+        this.comments = r.comments;
+        void this.collab.reconcile();
+      } else {
+        this.comments = (await api.commentEdit(op)).comments;
+      }
+      ok = true;
+    });
+    return ok;
   }
 
   // -------------------------------------------------------------- co-writing
@@ -149,6 +232,7 @@ class AppState {
 
   /** Something changed in the shared doc (here or from another writer). */
   private onSharedChange() {
+    void this.readSharedComments();
     if (!this.collab || !this.scene) return;
     const m = this.collab.sceneMeta(this.scene.id);
     if (m) this.scene.meta = { ...this.scene.meta, ...(m as Partial<SceneMeta>) };
@@ -170,6 +254,8 @@ class AppState {
     await this.guard(async () => {
       this.collab = await CollabSession.share(relay, name, (v) => this.onSharedProject(v), () => this.onSharedChange());
       code = this.collab.inviteCode(this.project!.title);
+      this.commentsText = null;
+      await this.loadComments();
       const id = this.scene?.id;
       this.scene = null;
       if (id) await this.openScene(id); // reopen bound to the shared text
@@ -203,6 +289,7 @@ class AppState {
     const id = this.scene?.id;
     this.scene = null;
     await this.refreshProject();
+    await this.loadComments();
     if (id) await this.openScene(id);
   }
 
@@ -273,6 +360,7 @@ class AppState {
     await api.projectClose().catch(() => undefined);
     this.project = null;
     this.scene = null;
+    this.comments = [];
   }
 
   // -------------------------------------------------------------- scenes
@@ -676,6 +764,7 @@ class AppState {
       this.project = await api.projectView();
       await this.refreshOpenScene();
     });
+    await this.loadComments();
   }
 
   // -------------------------------------------------------------- errors

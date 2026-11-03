@@ -22,6 +22,13 @@ it's settled, either built or turned down for good.
 - **A parenthetical wrapped onto two lines** is flagged as unclosed. Typing it on one
   line avoids this; a fix would be to treat the following line as its continuation.
 
+- **Suggested edits**, like Google Docs' suggesting mode: proposed insertions and
+  deletions shown in the text, to accept or reject. Put off on 2026-11-03 in favour of
+  comment threads.
+- **Comments in Production**: a project-wide list of open comments, like the script
+  check's. At present the scene list counts them per scene.
+- **Printing comments** in a PDF export (in the margin or as endnotes), for a read-through.
+
 ## Turned down
 
 - **Importing from Google Docs.** Scripts are converted by hand with Claude instead.

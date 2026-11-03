@@ -75,7 +75,7 @@ function folderState(root) {
       };
     }
   }
-  for (const f of ["project.yaml", "characters.yaml", "locations.yaml", "songs.yaml"]) {
+  for (const f of ["project.yaml", "characters.yaml", "locations.yaml", "songs.yaml", "comments.yaml"]) {
     const p = path.join(root, f);
     if (fs.existsSync(p)) out[f] = fs.readFileSync(p, "utf8");
   }
@@ -195,6 +195,28 @@ function sceneFile(root, id) {
     check("both writers' files contain both edits", true);
     await until(async () => (await A.$$(".scene .peer")).length >= 1, 4000, "A sees where Sam is");
     check("the scene tree shows where the other writer is", true);
+
+    // ---- Comments are shared: Liam comments, Sam sees it and replies
+    await A.evaluate(() => window.__swSelect("Liam was here."));
+    await A.click('[data-testid="comment-add"]');
+    await A.fill('[data-testid="comment-draft"]', "Too modest?");
+    await A.click('[data-testid="comment-submit"]');
+    await B.click('[data-testid="comments-toggle"]');
+    const bt = B.locator(".card[data-thread]").first();
+    await until(async () => (await bt.count()) > 0 && (await bt.textContent()).includes("Too modest?"), 6000, "B to see A's comment");
+    check("a comment appears for the other writer, with its author", (await bt.textContent()).includes("Liam"));
+    await bt.locator("button.quote").click();
+    await until(async () => (await B.locator(".sw-comment").count()) > 0, 4000, "B's highlight");
+    check("on the same text", (await B.locator(".sw-comment").first().textContent()) === "Liam was here.");
+    await bt.locator('textarea[aria-label="Reply"]').fill("Just right.");
+    await bt.locator('button:has-text("Reply")').click();
+    await until(async () => (await A.locator(".card[data-thread] .msg").count()) === 2, 6000, "A to see Sam's reply");
+    check("a reply reaches the first writer", (await A.locator(".card[data-thread]").first().textContent()).includes("Sam"));
+    await until(() => {
+      const ya = path.join(dirA, "comments.yaml"), yb = path.join(dirB, "comments.yaml");
+      return fs.existsSync(ya) && fs.existsSync(yb) && fs.readFileSync(ya, "utf8").includes("Just right.") && fs.readFileSync(ya, "utf8") === fs.readFileSync(yb, "utf8");
+    }, 8000, "both folders' comments.yaml to match");
+    check("both folders have the same comments.yaml", true);
     await snap(A, "cowrite-01-A.png");
     await snap(B, "cowrite-01-B.png");
 

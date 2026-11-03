@@ -9,6 +9,13 @@ change, the cursor, is listed under 0.3.0.)
 
 ## 0.5.0 (2026-11-03)
 
+- **Comments**, as in Google Docs. Select text and press **Comment** (Ctrl+Alt+M):
+  the passage is highlighted, and the comments panel (💬 above the script) lists the
+  scene's threads. Reply, edit or delete your own messages, and resolve a thread to
+  hide it (Show resolved brings it back). The scene list counts open comments.
+  Comments are kept in `comments.yaml`, not in the scene files, and follow their text
+  as it's edited; if it's deleted the comment stays, marked as detached. Shared live
+  when co-writing.
 - **More script checks, from the BBC Writersroom format guides.**
   - Film and TV: a heading followed straight by dialogue; (V.O.) or (O.S.) written
     as a parenthetical (the fix moves it next to the name); parentheticals in

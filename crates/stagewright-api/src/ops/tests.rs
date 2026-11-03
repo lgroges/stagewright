@@ -1160,3 +1160,32 @@ fn exports_open_and_close_like_the_guides() {
     assert!(n("FADE IN:") >= 3);
     assert!(lines.iter().any(|l| l == "END OF SHOW"));
 }
+
+#[test]
+fn comments_are_kept_in_comments_yaml() {
+    let (t, mut ws) = fixture("stage-sample");
+    assert_eq!(call(&mut ws, "comments_list", json!({}))["comments"], json!([]));
+    let add = json!({"op": {"op": "add", "id": "cm-1", "scene": "sc-0-0", "quote": "Charts", "before": "", "after": "",
+        "line": 0, "author": "Liam", "at": "2026-11-03T09:00:00Z", "text": "Which?"}});
+    let v = call(&mut ws, "comment_edit", add.clone());
+    assert_eq!(v["comments"][0]["messages"][0]["text"], "Which?");
+    let on_disk = fs::read_to_string(t.path().join("comments.yaml")).unwrap();
+    assert_eq!(v["text"], on_disk);
+    // It's a project file: listed, shared when co-writing, and checked when saved by hand.
+    assert!(call(&mut ws, "project_view", json!({}))["files"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("comments.yaml")));
+    let version = call(&mut ws, "file_read", json!({"name": "comments.yaml"}))["version"].clone();
+    let bad = dispatch(
+        &mut ws,
+        "file_save",
+        json!({"name": "comments.yaml", "text": "- id: x\n", "base_version": version}),
+    );
+    assert_eq!(bad.unwrap_err().code, "invalid_yaml");
+    // The same change over shared text writes nothing.
+    let r = call(&mut ws, "comment_edit_text", json!({"text": "", "op": add["op"]}));
+    assert_eq!(r["comments"].as_array().unwrap().len(), 1);
+    let dup = dispatch(&mut ws, "comment_edit_text", json!({"text": on_disk, "op": add["op"]}));
+    assert_eq!(dup.unwrap_err().code, "bad_args");
+}

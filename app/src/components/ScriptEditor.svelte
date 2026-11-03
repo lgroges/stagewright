@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { EditorState } from "@codemirror/state";
   import { EditorView } from "@codemirror/view";
   import { app } from "../lib/state.svelte";
@@ -9,7 +9,18 @@
   import { openLintPanel } from "@codemirror/lint";
   import { recheck } from "../lib/editor/check";
   import { refreshContd, setSpelling } from "../lib/editor/setup";
-  import { api } from "../lib/api";
+  import { api, type Comment } from "../lib/api";
+  import CommentsPanel from "./CommentsPanel.svelte";
+  import {
+    anchorAt,
+    commentSpans,
+    locate,
+    setActiveComment,
+    setCommentMarks,
+    setShowResolved,
+    type CommentMark,
+    type Span,
+  } from "../lib/editor/comments";
 
   let host: HTMLDivElement;
   let view: EditorView | null = null;
@@ -23,6 +34,111 @@
   let speakers = $state(0);
   let showKeys = $state(false);
   let issues = $state({ warnings: 0, infos: 0 });
+  let hasSelection = $state(false);
+  /** Where each of this scene's comments is now (absent: its text was deleted). */
+  let spans = $state<Map<string, Span>>(new Map());
+  let draft = $state<{ from: number; to: number; quote: string } | null>(null);
+  /** Each comment's stored anchor as last placed or saved here, to tell our own saves from others' changes. */
+  const placed = new Map<string, string>();
+  let anchorTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const anchorKey = (a: { quote: string; before: string; after: string; line: number }) =>
+    JSON.stringify([a.quote, a.before, a.after, a.line]);
+
+  /**
+   * Highlight this scene's comments. A comment whose stored anchor is the one
+   * placed here keeps its live highlight (which has followed the edits); any
+   * other (new, or moved by a co-writer, or `fresh` after loading) is located.
+   */
+  function placeComments(fresh = false) {
+    if (!view || !shownId) return;
+    const doc = view.state.doc.toString();
+    const live = commentSpans(view.state);
+    const marks: CommentMark[] = [];
+    for (const c of app.comments) {
+      if (c.scene !== shownId) continue;
+      const key = anchorKey(c);
+      const span = !fresh && placed.get(c.id) === key ? (live.get(c.id) ?? null) : locate(doc, c);
+      placed.set(c.id, key);
+      if (span) marks.push({ id: c.id, from: span.from, to: span.to, resolved: c.resolved });
+    }
+    const [active, showResolved] = untrack(() => [app.activeComment, app.showResolved] as const);
+    view.dispatch({ effects: [setCommentMarks.of(marks), setActiveComment.of(active), setShowResolved.of(showResolved)] });
+    spans = commentSpans(view.state);
+  }
+
+  /** Store where comments are now, for those whose passage has moved or changed. */
+  function saveAnchors() {
+    if (anchorTimer) clearTimeout(anchorTimer);
+    anchorTimer = null;
+    if (!view || !shownId) return;
+    const doc = view.state.doc.toString();
+    const live = commentSpans(view.state);
+    const moved = [];
+    for (const c of app.comments) {
+      const s = c.scene === shownId ? live.get(c.id) : undefined;
+      if (!s) continue;
+      const a = anchorAt(doc, s.from, s.to);
+      if (anchorKey(a) !== anchorKey(c)) {
+        placed.set(c.id, anchorKey(a));
+        moved.push({ id: c.id, ...a });
+      }
+    }
+    if (moved.length) void app.editComments({ op: "anchor", anchors: moved });
+  }
+
+  function newComment() {
+    if (!view) return;
+    const sel = view.state.selection.main;
+    if (sel.empty) return;
+    draft = { from: sel.from, to: sel.to, quote: view.state.sliceDoc(sel.from, sel.to) };
+    app.activeComment = null;
+    app.toggleComments(true);
+  }
+
+  async function submitDraft(text: string): Promise<boolean> {
+    if (!view || !draft || !shownId) return false;
+    // The draft's passage may have moved while it was typed: map it to now.
+    const doc = view.state.doc.toString();
+    const span: Span | null =
+      doc.slice(draft.from, draft.to) === draft.quote ? draft : locate(doc, { quote: draft.quote, before: "", after: "", line: 0 });
+    if (!span) {
+      app.error = "The text you were commenting on has changed. Select it again.";
+      return false;
+    }
+    const id = "cm-" + Math.random().toString(36).slice(2, 10);
+    const ok = await app.editComments({
+      op: "add",
+      id,
+      scene: shownId,
+      ...anchorAt(doc, span.from, span.to),
+      author: app.author,
+      at: new Date().toISOString(),
+      text,
+    });
+    if (ok) {
+      draft = null;
+      app.activeComment = id;
+    }
+    return ok;
+  }
+
+  /** Show a comment's passage in the script. */
+  function selectComment(id: string) {
+    app.activeComment = id;
+    const s = view && commentSpans(view.state).get(id);
+    if (view && s) view.dispatch({ selection: { anchor: s.from, head: s.to }, scrollIntoView: true });
+  }
+
+  const sceneComments = $derived.by(() => {
+    const id = app.scene?.id;
+    const list: { comment: Comment; at: number | null }[] = app.comments
+      .filter((c) => c.scene === id)
+      .map((c) => ({ comment: c, at: spans.get(c.id)?.from ?? null }));
+    // In script order; detached ones last.
+    return list.sort((a, b) => (a.at ?? Infinity) - (b.at ?? Infinity));
+  });
+  const openCount = $derived(sceneComments.filter((c) => !c.comment.resolved).length);
 
   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
   const keyLabel = (k: string) => k.replace("Mod-", isMac ? "⌘" : "Ctrl+").replace("Shift-", isMac ? "⇧" : "Shift+");
@@ -60,8 +176,19 @@
         onChange: (s) => {
           app.bodyChanged(s.doc.toString());
           measure(s);
+          spans = commentSpans(s);
+          if (anchorTimer) clearTimeout(anchorTimer);
+          anchorTimer = setTimeout(saveAnchors, 1200);
         },
-        onCursor: (s) => (active = toolbarElement(s)),
+        onCursor: (s) => {
+          active = toolbarElement(s);
+          hasSelection = !s.selection.main.empty;
+        },
+        onComment: (id) => {
+          app.activeComment = id;
+          if (id) app.toggleComments(true);
+        },
+        onNewComment: newComment,
         onSave: () => void app.flush(),
         check: {
           check: async (body) => {
@@ -83,6 +210,9 @@
     const sc = app.scene;
     if (!view || !sc) return;
     if (sc.loadToken === shownToken) return;
+    // Store where the last scene's comments ended up before leaving it.
+    saveAnchors();
+    draft = null;
     let state: EditorState;
     if (app.collab) {
       // Shared text: always bind afresh (undo history lives in the shared session).
@@ -98,6 +228,7 @@
     issues = { warnings: 0, infos: 0 };
     shownToken = sc.loadToken;
     shownId = sc.id;
+    placeComments(true);
     measure(state);
     active = toolbarElement(state);
     view.focus();
@@ -107,8 +238,17 @@
     view = new EditorView({ parent: host, state: makeState("") });
     // For end-to-end tests: the editor only renders visible lines, so expose the full text.
     (window as unknown as { __swText?: () => string }).__swText = () => view?.state.doc.toString() ?? "";
+    // …and select a passage by its text (the first match).
+    (window as unknown as { __swSelect?: (t: string) => boolean }).__swSelect = (t: string) => {
+      const at = view?.state.doc.toString().indexOf(t) ?? -1;
+      if (!view || at < 0) return false;
+      view.dispatch({ selection: { anchor: at, head: at + t.length }, scrollIntoView: true });
+      view.focus();
+      return true;
+    };
     show();
     return () => {
+      saveAnchors();
       void app.flush();
       view?.destroy();
       view = null;
@@ -133,6 +273,19 @@
     void app.checksVersion;
     void app.project?.cues;
     if (view) view.dispatch({ effects: recheck.of(null) });
+  });
+
+  // Comments changed (here, by a co-writer, or in comments.yaml): place them again.
+  $effect(() => {
+    void app.comments;
+    void app.scene?.loadToken;
+    placeComments();
+  });
+
+  $effect(() => {
+    const id = app.activeComment;
+    const on = app.showResolved;
+    if (view) view.dispatch({ effects: [setActiveComment.of(id), setShowResolved.of(on)] });
   });
 
   $effect(() => {
@@ -208,6 +361,22 @@
       disabled={active !== "lyric" && active !== "song"}>Stanza</button
     >
     <button
+      class="ghost comment-add"
+      title="Comment on the selected text (Ctrl+Alt+M)"
+      onmousedown={(e) => e.preventDefault()}
+      onclick={newComment}
+      disabled={!hasSelection}
+      data-testid="comment-add">Comment</button
+    >
+    <button
+      class="ghost"
+      class:on={app.commentsOpen}
+      onclick={() => app.toggleComments()}
+      aria-pressed={app.commentsOpen}
+      title={app.commentsOpen ? "Hide comments" : "Show comments"}
+      data-testid="comments-toggle">💬 {openCount}</button
+    >
+    <button
       class="ghost spell"
       class:off={!app.spellcheck}
       onclick={() => app.toggleSpellcheck()}
@@ -240,7 +409,12 @@
     </div>
   {/if}
 
-  <div class="cm-host fmt-{format}" bind:this={host}></div>
+  <div class="work">
+    <div class="cm-host fmt-{format}" bind:this={host}></div>
+    {#if app.commentsOpen}
+      <CommentsPanel shown={sceneComments} {draft} onselect={selectComment} onsubmit={submitDraft} oncancel={() => (draft = null)} />
+    {/if}
+  </div>
 
   <footer class="status">
     <span data-testid="element">{active ? (active === "direction" && screen ? "Action" : elementName[active]) : "—"}</span>
@@ -273,8 +447,10 @@
 </div>
 
 <style>
-  .spell {
+  .comment-add {
     margin-left: auto;
+  }
+  .spell {
     text-decoration: underline wavy color-mix(in srgb, var(--bad) 70%, transparent);
     text-underline-offset: 4px;
   }
@@ -331,8 +507,14 @@
   .conflict span {
     flex: 1;
   }
+  .work {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+  }
   .cm-host {
     flex: 1;
+    min-width: 0;
     min-height: 0;
     overflow: hidden;
   }

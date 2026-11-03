@@ -21,7 +21,10 @@ it's settled, either built or turned down for good.
   for real is undecided.
 - **A parenthetical wrapped onto two lines** is flagged as unclosed. Typing it on one
   line avoids this; a fix would be to treat the following line as its continuation.
-
+- **A repeated-word check** ("are are"), which the system spellchecker misses. Raised
+  on 2026-11-03 after a read of the Dee-Kelley scene.
+- **Ages at introduction**: a note when a character's first appearance gives no age,
+  such as (30s). Optional convention, so it would be easy to switch off.
 - **Suggested edits**, like Google Docs' suggesting mode: proposed insertions and
   deletions shown in the text, to accept or reject. Put off on 2026-11-03 in favour of
   comment threads.

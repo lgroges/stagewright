@@ -12,13 +12,19 @@ for a TV series, `episodes/<EE>/acts/<NN>/`.
 
 ## 1. Get the current format first
 
-The format changes as the app develops. Before reading a project, fetch the live
-reference and follow it wherever it differs from the summary below:
+The format changes as the app develops. Before reading a project, get the live
+reference (docs/format.md in the public repo) and follow it wherever it differs from
+the summary below. Try, in order:
 
-- https://raw.githubusercontent.com/lgroges/stagewright/main/docs/format.md
-  (or https://github.com/lgroges/stagewright/blob/main/docs/format.md)
+1. With a shell: `curl -sS https://raw.githubusercontent.com/lgroges/stagewright/main/docs/format.md`
+   (GitHub is usually reachable from the shell), or
+   `git clone --depth 1 https://github.com/lgroges/stagewright` and read `docs/format.md`.
+2. Otherwise a web fetch of that raw URL.
+3. If neither is allowed, ask Liam to paste the link
+   https://github.com/lgroges/stagewright/blob/main/docs/format.md into the chat and
+   fetch it then, or carry on with the summary below if he'd rather not.
 
-It starts with a "Format version" line. This skill was written for **format version
+The page starts with a "Format version" line. This skill was written for **format version
 3**. If the live version is higher, use the live page, and tell Liam in one line that
 this skill can be refreshed (he can ask Claude in the Stagewright repo to propose the
 update). If the page can't be reached, use the summary below and say it may be out

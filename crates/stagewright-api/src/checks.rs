@@ -3,8 +3,8 @@
 use crate::ops::{find_scene, load, read_text, scene_label, write_atomic};
 use crate::{ApiError, ApiResult};
 use serde_json::{json, Value};
-use stagewright_core::analysis::scene_stats;
-use stagewright_core::check::{check_cues, check_scene, Context, Person, Severity, CHECKS};
+use stagewright_core::analysis::speakers_in;
+use stagewright_core::check::{check_cues, check_scene, note_introductions, Context, Person, Severity, CHECKS};
 use stagewright_core::frontmatter::set_key;
 use stagewright_core::layout::Format;
 use stagewright_core::project::ProjectMeta;
@@ -17,7 +17,7 @@ fn context(p: &Project) -> Context {
     let cast = p.characters.iter().map(|c| c.cue.clone()).collect();
     let mut known: std::collections::BTreeSet<String> = p.characters.iter().map(|c| c.cue.clone()).collect();
     for sf in &p.scenes {
-        known.extend(scene_stats(&sf.scene, &p.meta).speeches.keys().cloned());
+        known.extend(speakers_in(&sf.scene));
     }
     let people = p
         .characters
@@ -152,17 +152,14 @@ pub fn check_one(root: &Path, id: &str, body: &str) -> ApiResult {
     let target = find_scene(&p, id)?;
     let mut ctx = context(&p);
     // Characters introduced in earlier scenes count as introduced. Only that is
-    // wanted from them, so skip the slow checks there (this runs as you type).
-    let off = ctx.off.clone();
-    ctx.off.extend(["grammar".to_string(), "scene-long".to_string()]);
+    // wanted from them (this runs as you type), so no rules are run there.
     for (n, sf) in p.scenes.iter().enumerate() {
         if sf.scene.meta.id == target.scene.meta.id {
             ctx.fade_out_here = fade_out_here(&p, n);
             break;
         }
-        check_scene(&body_of(sf), &sf.scene.meta, &mut ctx);
+        note_introductions(&body_of(sf), &mut ctx);
     }
-    ctx.off = off;
     let issues = check_scene(&body.replace("\r\n", "\n"), &target.scene.meta, &mut ctx);
     Ok(json!({ "issues": issues }))
 }

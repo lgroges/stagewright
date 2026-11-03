@@ -21,7 +21,7 @@ const LOWER = /\p{Lowercase}/u;
 const encoder = new TextEncoder();
 
 /** `ROSALIND (CONT'D)` -> ["ROSALIND", "CONT'D"]. */
-export function stripExtension(line: string): [string, string | null] {
+function stripExtension(line: string): [string, string | null] {
   const t = line.trimEnd();
   if (t.endsWith(")")) {
     const open = t.lastIndexOf(" (");
@@ -55,7 +55,7 @@ export function isHeadingText(line: string): boolean {
   return HEADING_PREFIXES.some((p) => head.startsWith(p) && (head[p.length] === "." || head[p.length] === " "));
 }
 
-export function isTransitionText(line: string): boolean {
+function isTransitionText(line: string): boolean {
   const t = line.trimEnd();
   return t.endsWith("TO:") && /[A-Z]/.test(t) && !LOWER.test(t);
 }
@@ -147,7 +147,7 @@ export function spokenWords(line: string): number {
   return kept.split(/\s+/).filter(Boolean).length;
 }
 
-export interface LiveStats {
+interface LiveStats {
   words: number;
   lyricLines: number;
   speakers: Map<string, number>;

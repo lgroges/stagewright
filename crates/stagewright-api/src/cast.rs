@@ -9,7 +9,7 @@ use crate::{ApiError, ApiResult};
 use serde_json::{json, Map, Value};
 use stagewright_core::analysis::scene_stats;
 use stagewright_core::cast::{
-    list_entries, rename_character_in_body, rename_place_in_body, valid_cue_name, write_list, RenameCount,
+    list_entries, rename_character_in_body, rename_place_in_body, title_case, valid_cue_name, write_list, RenameCount,
     CHARACTER_KEYS, LOCATION_KEYS, SONG_KEYS,
 };
 use stagewright_core::scene::serialize_body;
@@ -257,20 +257,6 @@ pub fn character_save_text(text: &str, id: Option<&str>, entry: &Map<String, Val
         }
     }
     write_list(text, &list, CHARACTER_KEYS).map_err(|e| ApiError::new("internal", e))
-}
-
-/// `SAILOR 1` → `Sailor 1`, `MRS O'NEILL` → `Mrs O'neill` (a starting point to edit).
-fn title_case(s: &str) -> String {
-    s.split(' ')
-        .map(|w| {
-            let mut c = w.chars();
-            match c.next() {
-                Some(f) => f.to_uppercase().collect::<String>() + &c.as_str().to_lowercase(),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 pub fn character_delete_text(text: &str, id: &str) -> Result<String, ApiError> {

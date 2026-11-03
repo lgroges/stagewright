@@ -6,7 +6,8 @@
 //! the writer, not the parser. Positions are body lines (0-based) and columns
 //! in characters, so the editor can underline the exact words.
 
-use crate::cast::replace_word;
+use crate::analysis::GROUP_CUES;
+use crate::cast::{replace_word, title_case};
 use crate::layout::Format;
 use crate::scene::{Element, SceneMeta, parse_body, strip_extension};
 use serde::Serialize;
@@ -143,6 +144,16 @@ pub const CAMERA_DIRECTIONS: &[&str] = &[
     "SPLIT SCREEN",
 ];
 
+/// Camera directions, longest first, so "EXTREME CLOSE UP" wins over "CLOSE UP".
+fn camera_terms_longest_first() -> &'static [&'static str] {
+    static SORTED: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+    SORTED.get_or_init(|| {
+        let mut t = CAMERA_DIRECTIONS.to_vec();
+        t.sort_by_key(|t| std::cmp::Reverse(t.len()));
+        t
+    })
+}
+
 /// Words for what's inside a character's head, which the camera can't show.
 const NOVELISTIC: &[&str] = &[
     "thinks",
@@ -262,20 +273,6 @@ impl Person {
             .or_else(|| self.name.clone())
             .unwrap_or_else(|| title_case(&self.cue))
     }
-}
-
-/// `THE MINISTER` -> `The Minister`.
-fn title_case(s: &str) -> String {
-    s.split(' ')
-        .map(|w| {
-            let mut c = w.chars();
-            match c.next() {
-                Some(f) => f.to_uppercase().collect::<String>() + &c.as_str().to_lowercase(),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// `SPRING. THE SUN SHINES.` -> `Spring. The sun shines.`
@@ -482,8 +479,6 @@ pub fn check_cues(ctx: &Context) -> Vec<CastNote> {
     out
 }
 
-const GROUP_CUES: &[&str] = &["ALL"];
-
 pub const TIMES: &[&str] = &[
     "DAY",
     "NIGHT",
@@ -594,271 +589,382 @@ fn is_contd(ext: &str) -> bool {
 /// Check one scene body. `ctx.introduced` is updated with characters this
 /// scene introduces, so a project check can carry it from scene to scene.
 pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue> {
-    let lines: Vec<&str> = if body.is_empty() {
-        vec![]
-    } else {
-        body.split('\n').collect()
-    };
-    let els = parse_body(body);
-    let screen = ctx.format.is_screen();
-    // Everyone the action may mention: the cast list, plus cues not in it.
-    let mut people = ctx.people.clone();
-    for cue in &ctx.known {
-        if !people.iter().any(|p| &p.cue == cue) && !GROUP_CUES.contains(&cue.as_str()) {
-            people.push(Person {
-                cue: cue.clone(),
-                ..Default::default()
-            });
+    let mut scan = Scan::new(body, ctx);
+    scan.scene_start();
+    for i in 0..scan.els.len() {
+        let el = scan.els[i].clone();
+        let text = scan.lines.get(i).copied().unwrap_or("");
+        match &el {
+            Element::Cue(c) => scan.cue(i, c, text),
+            Element::Dialogue(t) => scan.dialogue(i, t),
+            Element::Direction { text: t, forced } => scan.direction(i, t, *forced, text),
+            Element::SongStart(s) => scan.song_start(i, s, text),
+            Element::Lyric(_) | Element::LyricBreak => scan.lyric(i),
+            Element::SongEnd => scan.song_end(i),
+            Element::SceneHeading(h) => scan.heading(i, h, text),
+            Element::Parenthetical(t) => scan.parenthetical(i, t, text),
+            Element::Transition { text: t, .. } => scan.transition(i, t, text),
+            Element::Blank | Element::Centered(_) | Element::PageBreak(_) => {}
         }
     }
-    let mut out: Vec<Issue> = Vec::new();
+    scan.finish(meta)
+}
 
-    let mut open_song: Option<usize> = None;
-    let mut last_lyric: Option<usize> = None;
-    let mut speakers: Vec<String> = Vec::new(); // of the current speech
-    let mut spoken: BTreeSet<String> = BTreeSet::new();
-    let blank = |i: usize| lines.get(i).is_none_or(|l| l.is_empty());
+/// Only follow who is introduced in `body` (the cues, and first mentions in the
+/// action), as checking a later scene needs; no rules are run.
+pub fn note_introductions(body: &str, ctx: &mut Context) {
+    let mut scan = Scan::new(body, ctx);
+    if !scan.tracks_introductions() {
+        return;
+    }
+    for i in 0..scan.els.len() {
+        match scan.els[i].clone() {
+            Element::Cue(c) => {
+                for s in c.speakers().into_iter().filter(|s| !GROUP_CUES.contains(s)) {
+                    scan.ctx.introduced.insert(s.to_string());
+                }
+            }
+            Element::Direction { text: t, forced } => {
+                let text = scan.lines.get(i).copied().unwrap_or("");
+                scan.introductions(i, &t, forced, text);
+            }
+            _ => {}
+        }
+    }
+}
 
-    if screen && !lines.iter().all(|l| l.trim().is_empty()) {
-        let first = els.iter().position(|e| !matches!(e, Element::Blank)).unwrap_or(0);
-        if !matches!(
-            els.get(first),
-            Some(Element::SceneHeading(_)) | Some(Element::PageBreak(_))
-        ) {
-            out.push(issue(
-                "screen-scene-start",
+/// One scene being checked: what the rules share as they go down it.
+struct Scan<'a> {
+    ctx: &'a mut Context,
+    lines: Vec<&'a str>,
+    els: Vec<Element>,
+    screen: bool,
+    /// Everyone the action may mention: the cast list, plus cues not in it.
+    people: Vec<Person>,
+    /// Every way the action may name them: (form, any case, index into `people`).
+    forms: Vec<(String, bool, usize)>,
+    out: Vec<Issue>,
+    open_song: Option<usize>,
+    last_lyric: Option<usize>,
+    /// Of the current speech.
+    speakers: Vec<String>,
+    spoken: BTreeSet<String>,
+}
+
+impl<'a> Scan<'a> {
+    fn new(body: &'a str, ctx: &'a mut Context) -> Scan<'a> {
+        let lines: Vec<&str> = if body.is_empty() {
+            vec![]
+        } else {
+            body.split('\n').collect()
+        };
+        let els = parse_body(body);
+        let screen = ctx.format.is_screen();
+        let mut people = ctx.people.clone();
+        for cue in &ctx.known {
+            if !people.iter().any(|p| &p.cue == cue) && !GROUP_CUES.contains(&cue.as_str()) {
+                people.push(Person {
+                    cue: cue.clone(),
+                    ..Default::default()
+                });
+            }
+        }
+        let mut forms = Vec::new();
+        for (pi, p) in people.iter().enumerate() {
+            forms.push((p.cue.clone(), true, pi));
+            if let Some(n) = &p.name {
+                forms.push((n.clone(), false, pi));
+                forms.push((n.to_uppercase(), false, pi));
+            }
+            if let Some(s) = &p.short {
+                forms.push((s.clone(), true, pi));
+            }
+        }
+        Scan {
+            ctx,
+            lines,
+            els,
+            screen,
+            people,
+            forms,
+            out: Vec::new(),
+            open_song: None,
+            last_lyric: None,
+            speakers: Vec::new(),
+            spoken: BTreeSet::new(),
+        }
+    }
+
+    fn blank(&self, i: usize) -> bool {
+        self.lines.get(i).is_none_or(|l| l.is_empty())
+    }
+
+    /// Introductions are tracked in film and single-camera TV (multi-camera
+    /// action is printed in capitals anyway).
+    fn tracks_introductions(&self) -> bool {
+        self.screen && self.ctx.format != Format::TvMulti
+    }
+
+    fn scene_start(&mut self) {
+        if self.screen && !self.lines.iter().all(|l| l.trim().is_empty()) {
+            let first = self.els.iter().position(|e| !matches!(e, Element::Blank)).unwrap_or(0);
+            if !matches!(
+                self.els.get(first),
+                Some(Element::SceneHeading(_)) | Some(Element::PageBreak(_))
+            ) {
+                self.out.push(issue(
+                    "screen-scene-start",
+                    Severity::Info,
+                    first,
+                    (0, 0),
+                    "Film and TV scenes usually start with a scene heading (INT. or EXT.).".into(),
+                    None,
+                ));
+            }
+        }
+    }
+
+    fn cue(&mut self, i: usize, c: &crate::scene::Cue, text: &str) {
+        let prev_speakers = std::mem::take(&mut self.speakers); // of the speech before
+        self.speakers = c
+            .speakers()
+            .into_iter()
+            .filter(|s| !GROUP_CUES.contains(s))
+            .map(str::to_string)
+            .collect();
+        for s in &self.speakers {
+            self.spoken.insert(s.clone());
+            if !self.ctx.cast.is_empty() && !self.ctx.cast.contains(s) {
+                let span = cols(text, s);
+                match near(s, &self.ctx.cast) {
+                    Some(m) => self.out.push(issue(
+                        "cue-unknown",
+                        Severity::Warning,
+                        i,
+                        span,
+                        format!("{s} isn't in the cast list. Did you mean {m}?"),
+                        fix(
+                            format!("Change to {m}"),
+                            vec![Edit::Replace {
+                                line: i,
+                                text: replace_word(text, s, m).0,
+                            }],
+                        ),
+                    )),
+                    None => self.out.push(issue(
+                        "cue-unknown",
+                        Severity::Info,
+                        i,
+                        span,
+                        format!("{s} isn't in the cast list (add them in Cast)."),
+                        None,
+                    )),
+                }
+            }
+        }
+        if let Some(ext) = &c.extension
+            && is_contd(ext)
+            && (prev_speakers.is_empty() || prev_speakers != self.speakers)
+        {
+            let who = if prev_speakers.is_empty() {
+                "there's no speech before it in this scene".to_string()
+            } else {
+                format!("the speech before is {}'s", prev_speakers.join(" & "))
+            };
+            let cleaned = text.replacen(&format!(" ({ext})"), "", 1);
+            self.out.push(issue(
+                "contd-mismatch",
                 Severity::Info,
-                first,
+                i,
                 (0, 0),
-                "Film and TV scenes usually start with a scene heading (INT. or EXT.).".into(),
-                None,
+                format!("({ext}) means the same character carries on, but {who}."),
+                (cleaned != text).then(|| Fix {
+                    label: format!("Remove ({ext})"),
+                    edits: vec![Edit::Replace { line: i, text: cleaned }],
+                }),
+            ));
+        }
+        if let Some(ext) = &c.extension
+            && ext.to_uppercase().contains("CONT")
+            && !prev_speakers.is_empty()
+            && prev_speakers == self.speakers
+        {
+            let without = text.replacen(&format!(" ({ext})"), "", 1);
+            let spelled = text.replacen(&format!("({ext})"), "(CONT'D)", 1);
+            if self.ctx.auto_contd {
+                self.out.push(issue(
+                    "contd-typed",
+                    Severity::Info,
+                    i,
+                    (0, 0),
+                    format!("({ext}) isn't needed: (CONT'D) is added automatically in this project."),
+                    (without != text).then(|| Fix {
+                        label: format!("Remove ({ext})"),
+                        edits: vec![Edit::Replace { line: i, text: without }],
+                    }),
+                ));
+            } else if ext.trim() != "CONT'D" {
+                self.out.push(issue(
+                    "contd-typed",
+                    Severity::Info,
+                    i,
+                    (0, 0),
+                    format!("The usual spelling is (CONT'D), not ({ext})."),
+                    fix("Write (CONT'D)", vec![Edit::Replace { line: i, text: spelled }]),
+                ));
+            }
+        }
+        if c.dual {
+            // The speech it sits beside must end just before it.
+            let before = (0..i).rev().find(|&j| !matches!(self.els[j], Element::Blank));
+            let ok = before.is_some_and(|j| {
+                matches!(
+                    self.els[j],
+                    Element::Dialogue(_) | Element::Parenthetical(_) | Element::SongEnd
+                )
+            });
+            if !ok {
+                let cleaned = text.trim_end().trim_end_matches('^').trim_end().to_string();
+                self.out.push(issue(
+                    "dual-orphan",
+                    Severity::Warning,
+                    i,
+                    (0, 0),
+                    "^ puts this speech beside the one before it, but there isn't one just before.".into(),
+                    fix("Remove the ^", vec![Edit::Replace { line: i, text: cleaned }]),
+                ));
+            }
+        }
+        if self.tracks_introductions() {
+            for s in &self.speakers {
+                self.ctx.introduced.insert(s.clone());
+            }
+        }
+    }
+
+    fn dialogue(&mut self, i: usize, t: &str) {
+        if t.starts_with('(') && !t.contains(')') {
+            self.out.push(issue(
+                "parenthetical-unclosed",
+                Severity::Warning,
+                i,
+                (0, 0),
+                "This starts like a parenthetical but has no closing bracket, so it reads as dialogue.".into(),
+                fix(
+                    "Add the )",
+                    vec![Edit::Replace {
+                        line: i,
+                        text: format!("{})", t.trim_end()),
+                    }],
+                ),
             ));
         }
     }
 
-    for (i, el) in els.iter().enumerate() {
-        let text = lines.get(i).copied().unwrap_or("");
-        match el {
-            Element::Cue(c) => {
-                let prev_speakers = std::mem::take(&mut speakers); // of the speech before
-                speakers = c
-                    .speakers()
-                    .into_iter()
-                    .filter(|s| !GROUP_CUES.contains(s))
-                    .map(str::to_string)
-                    .collect();
-                for s in &speakers {
-                    spoken.insert(s.clone());
-                    if !ctx.cast.is_empty() && !ctx.cast.contains(s) {
-                        let span = cols(text, s);
-                        match near(s, &ctx.cast) {
-                            Some(m) => out.push(issue(
-                                "cue-unknown",
-                                Severity::Warning,
-                                i,
-                                span,
-                                format!("{s} isn't in the cast list. Did you mean {m}?"),
-                                fix(
-                                    format!("Change to {m}"),
-                                    vec![Edit::Replace {
-                                        line: i,
-                                        text: replace_word(text, s, m).0,
-                                    }],
-                                ),
-                            )),
-                            None => out.push(issue(
-                                "cue-unknown",
-                                Severity::Info,
-                                i,
-                                span,
-                                format!("{s} isn't in the cast list (add them in Cast)."),
-                                None,
-                            )),
-                        }
-                    }
-                }
-                if let Some(ext) = &c.extension
-                    && is_contd(ext)
-                    && (prev_speakers.is_empty() || prev_speakers != speakers)
-                {
-                    let who = if prev_speakers.is_empty() {
-                        "there's no speech before it in this scene".to_string()
-                    } else {
-                        format!("the speech before is {}'s", prev_speakers.join(" & "))
-                    };
-                    let cleaned = text.replacen(&format!(" ({ext})"), "", 1);
-                    out.push(issue(
-                        "contd-mismatch",
+    fn direction(&mut self, i: usize, t: &str, forced: bool, text: &str) {
+        self.cue_like(i, t, forced, text);
+        if self.tracks_introductions() {
+            self.introductions(i, t, forced, text);
+        }
+        self.action_paragraph(i);
+        if !forced {
+            fade_out(i, &t.trim().to_uppercase(), text, &self.els, self.ctx, &mut self.out);
+        }
+        let off = usize::from(forced);
+        let chars: Vec<char> = t.chars().collect();
+        self.camera_directions(i, &chars, off);
+        self.repeated_words(i, &chars, off, forced);
+        self.novelistic(i, &chars, off);
+        self.grammar(i, t, &chars, off, forced);
+    }
+
+    /// A direction that looks like a cue: a name with a blank line after it, or not in capitals.
+    fn cue_like(&mut self, i: usize, t: &str, forced: bool, text: &str) {
+        let core = strip_extension(t).0;
+        let upper = core.to_uppercase();
+        let names_a_character = self.ctx.known.contains(&upper) || GROUP_CUES.contains(&upper.as_str());
+        if !forced && (i == 0 || self.blank(i - 1)) && names_a_character && core.trim() == core {
+            if core == upper && self.blank(i + 1) && !self.blank(i + 2) {
+                self.out.push(issue(
+                    "lonely-cue",
+                    Severity::Warning,
+                    i,
+                    (0, 0),
+                    format!(
+                        "{upper} has a blank line after it, so the lines below read as action, not as {upper}'s speech."
+                    ),
+                    fix("Remove the blank line", vec![Edit::Delete { line: i + 1 }]),
+                ));
+            } else if core != upper && !self.blank(i + 1) {
+                self.out.push(issue(
+                    "cue-not-caps",
+                    Severity::Warning,
+                    i,
+                    (0, 0),
+                    format!(
+                        "This looks like a cue for {upper}, but cues are written in capitals, so it reads as action."
+                    ),
+                    fix(
+                        format!("Write {upper}"),
+                        vec![Edit::Replace {
+                            line: i,
+                            text: text.replacen(core, &upper, 1),
+                        }],
+                    ),
+                ));
+            }
+        }
+    }
+
+    /// Introductions: the first mention in action is the full name in
+    /// capitals; after that, the short name in ordinary case.
+    fn introductions(&mut self, i: usize, t: &str, forced: bool, text: &str) {
+        let off = usize::from(forced);
+        let chars: Vec<char> = t.chars().collect();
+        // (from, to, caps, person index)
+        let mut found: Vec<(usize, usize, bool, usize)> = Vec::new();
+        for (form, any_case, pi) in &self.forms {
+            for (a, b, caps) in occurrences(&chars, form, *any_case) {
+                found.push((a, b, caps, *pi));
+            }
+        }
+        // Longest first at each place; drop matches inside another.
+        found.sort_by_key(|(a, b, _, _)| (*a, std::cmp::Reverse(*b)));
+        let mut kept: Vec<(usize, usize, bool, usize)> = Vec::new();
+        for m in found {
+            if kept.last().is_none_or(|k| m.0 >= k.1) {
+                kept.push(m);
+            }
+        }
+        for (a, b, caps, pi) in kept {
+            let p = &self.people[pi];
+            let span = (a + off, b + off);
+            let before: String = text.chars().take(span.0).collect();
+            let after: String = text.chars().skip(span.1).collect();
+            if !self.ctx.introduced.contains(&p.cue) {
+                self.ctx.introduced.insert(p.cue.clone());
+                // A possessive ("JOHN WESTON's funeral") isn't a place for an age.
+                let possessive = after.starts_with("'s") || after.starts_with("’s");
+                if !gives_age(&after) && !possessive {
+                    self.out.push(issue(
+                        "age-at-intro",
                         Severity::Info,
                         i,
-                        (0, 0),
-                        format!("({ext}) means the same character carries on, but {who}."),
-                        (cleaned != text).then(|| Fix {
-                            label: format!("Remove ({ext})"),
-                            edits: vec![Edit::Replace { line: i, text: cleaned }],
-                        }),
-                    ));
-                }
-                if let Some(ext) = &c.extension
-                    && ext.to_uppercase().contains("CONT")
-                    && !prev_speakers.is_empty()
-                    && prev_speakers == speakers
-                {
-                    let without = text.replacen(&format!(" ({ext})"), "", 1);
-                    let spelled = text.replacen(&format!("({ext})"), "(CONT'D)", 1);
-                    if ctx.auto_contd {
-                        out.push(issue(
-                            "contd-typed",
-                            Severity::Info,
-                            i,
-                            (0, 0),
-                            format!("({ext}) isn't needed: (CONT'D) is added automatically in this project."),
-                            (without != text).then(|| Fix {
-                                label: format!("Remove ({ext})"),
-                                edits: vec![Edit::Replace { line: i, text: without }],
-                            }),
-                        ));
-                    } else if ext.trim() != "CONT'D" {
-                        out.push(issue(
-                            "contd-typed",
-                            Severity::Info,
-                            i,
-                            (0, 0),
-                            format!("The usual spelling is (CONT'D), not ({ext})."),
-                            fix("Write (CONT'D)", vec![Edit::Replace { line: i, text: spelled }]),
-                        ));
-                    }
-                }
-                if c.dual {
-                    // The speech it sits beside must end just before it.
-                    let before = (0..i).rev().find(|&j| !matches!(els[j], Element::Blank));
-                    let ok = before.is_some_and(|j| {
-                        matches!(
-                            els[j],
-                            Element::Dialogue(_) | Element::Parenthetical(_) | Element::SongEnd
-                        )
-                    });
-                    if !ok {
-                        let cleaned = text.trim_end().trim_end_matches('^').trim_end().to_string();
-                        out.push(issue(
-                            "dual-orphan",
-                            Severity::Warning,
-                            i,
-                            (0, 0),
-                            "^ puts this speech beside the one before it, but there isn't one just before.".into(),
-                            fix("Remove the ^", vec![Edit::Replace { line: i, text: cleaned }]),
-                        ));
-                    }
-                }
-                if screen && ctx.format != Format::TvMulti {
-                    for s in &speakers {
-                        ctx.introduced.insert(s.clone());
-                    }
-                }
-            }
-            Element::Dialogue(t) => {
-                if t.starts_with('(') && !t.contains(')') {
-                    out.push(issue(
-                        "parenthetical-unclosed",
-                        Severity::Warning,
-                        i,
-                        (0, 0),
-                        "This starts like a parenthetical but has no closing bracket, so it reads as dialogue.".into(),
-                        fix(
-                            "Add the )",
-                            vec![Edit::Replace {
-                                line: i,
-                                text: format!("{})", t.trim_end()),
-                            }],
+                        span,
+                        format!(
+                            "First appearance of {}: screenplays usually give an age here, like (30s).",
+                            p.cue
                         ),
+                        None,
                     ));
                 }
-            }
-            Element::Direction { text: t, forced } => {
-                let core = strip_extension(t).0;
-                let upper = core.to_uppercase();
-                let names_a_character = ctx.known.contains(&upper) || GROUP_CUES.contains(&upper.as_str());
-                if !forced && (i == 0 || blank(i - 1)) && names_a_character && core.trim() == core {
-                    if core == upper && blank(i + 1) && !blank(i + 2) {
-                        out.push(issue(
-                            "lonely-cue",
-                            Severity::Warning,
-                            i,
-                            (0, 0),
-                            format!("{upper} has a blank line after it, so the lines below read as action, not as {upper}'s speech."),
-                            fix("Remove the blank line", vec![Edit::Delete { line: i + 1 }]),
-                        ));
-                    } else if core != upper && !blank(i + 1) {
-                        out.push(issue(
-                            "cue-not-caps",
-                            Severity::Warning,
-                            i,
-                            (0, 0),
-                            format!("This looks like a cue for {upper}, but cues are written in capitals, so it reads as action."),
-                            fix(format!("Write {upper}"), vec![Edit::Replace { line: i, text: text.replacen(core, &upper, 1) }]),
-                        ));
-                    }
-                }
-                // Introductions: the first mention in action is the full name in
-                // capitals; after that, the short name in ordinary case.
-                // (Multi-camera action is printed in capitals anyway.)
-                if screen && ctx.format != Format::TvMulti {
-                    let off = usize::from(*forced);
-                    let chars: Vec<char> = t.chars().collect();
-                    // (from, to, caps, person index)
-                    let mut found: Vec<(usize, usize, bool, usize)> = Vec::new();
-                    for (pi, p) in people.iter().enumerate() {
-                        let mut forms: Vec<(String, bool)> = vec![(p.cue.clone(), true)];
-                        if let Some(n) = &p.name {
-                            forms.push((n.clone(), false));
-                            forms.push((n.to_uppercase(), false));
-                        }
-                        if let Some(s) = &p.short {
-                            forms.push((s.clone(), true));
-                        }
-                        for (form, any_case) in forms {
-                            for (a, b, caps) in occurrences(&chars, &form, any_case) {
-                                found.push((a, b, caps, pi));
-                            }
-                        }
-                    }
-                    // Longest first at each place; drop matches inside another.
-                    found.sort_by_key(|(a, b, _, _)| (*a, std::cmp::Reverse(*b)));
-                    let mut kept: Vec<(usize, usize, bool, usize)> = Vec::new();
-                    for m in found {
-                        if kept.last().is_none_or(|k| m.0 >= k.1) {
-                            kept.push(m);
-                        }
-                    }
-                    for (a, b, caps, pi) in kept {
-                        let p = &people[pi];
-                        let span = (a + off, b + off);
-                        let before: String = text.chars().take(span.0).collect();
-                        let after: String = text.chars().skip(span.1).collect();
-                        if !ctx.introduced.contains(&p.cue) {
-                            ctx.introduced.insert(p.cue.clone());
-                            // A possessive ("JOHN WESTON's funeral") isn't a place for an age.
-                            let possessive = after.starts_with("'s") || after.starts_with("’s");
-                            if !gives_age(&after) && !possessive {
-                                out.push(issue(
-                                    "age-at-intro",
-                                    Severity::Info,
-                                    i,
-                                    span,
-                                    format!(
-                                        "First appearance of {}: screenplays usually give an age here, like (30s).",
-                                        p.cue
-                                    ),
-                                    None,
-                                ));
-                            }
-                            if !caps {
-                                let full = p
-                                    .name
-                                    .as_ref()
-                                    .map(|n| n.to_uppercase())
-                                    .unwrap_or_else(|| p.cue.clone());
-                                out.push(issue(
+                if !caps {
+                    let full = p
+                        .name
+                        .as_ref()
+                        .map(|n| n.to_uppercase())
+                        .unwrap_or_else(|| p.cue.clone());
+                    self.out.push(issue(
                                     "intro-caps",
                                     Severity::Info,
                                     i,
@@ -869,543 +975,559 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
                                         vec![Edit::Replace { line: i, text: format!("{before}{full}{after}") }],
                                     ),
                                 ));
-                            }
-                        } else if caps {
-                            let later = p.later();
-                            let note = if p.short.is_some() {
-                                String::new()
-                            } else {
-                                " (give them a short name in Cast)".to_string()
-                            };
-                            out.push(issue(
-                                "caps-after-intro",
-                                Severity::Info,
-                                i,
-                                span,
-                                format!(
-                                    "{} has already been introduced: from here on, write {later}{note}.",
-                                    p.cue
-                                ),
-                                fix(
-                                    format!("Write {later}"),
-                                    vec![Edit::Replace {
-                                        line: i,
-                                        text: format!("{before}{later}{after}"),
-                                    }],
-                                ),
-                            ));
-                        }
-                    }
                 }
-                // Action runs on: two action lines with no blank line between.
-                if screen && i > 0 && matches!(els[i - 1], Element::Direction { .. }) {
-                    out.push(issue(
-                        "action-run-on",
-                        Severity::Info,
-                        i,
-                        (0, 0),
-                        "This runs on from the line above as one paragraph; screenplays separate action paragraphs with a blank line.".into(),
-                        fix("Add a blank line before it", vec![Edit::InsertBefore { line: i, text: String::new() }]),
-                    ));
-                }
-                // Long action: count printed lines of the paragraph, at its first line.
-                if screen && !(i > 0 && matches!(els[i - 1], Element::Direction { .. })) {
-                    let width = crate::layout::Profile::for_format(ctx.format).action.width;
-                    let printed: usize = els[i..]
-                        .iter()
-                        .take_while(|e| matches!(e, Element::Direction { .. }))
-                        .map(|e| match e {
-                            Element::Direction { text, .. } => crate::layout::wrap(text, width).len(),
-                            _ => 0,
-                        })
-                        .sum();
-                    if printed > 5 {
-                        out.push(issue(
-                            "long-action",
-                            Severity::Info,
-                            i,
-                            (0, 0),
-                            format!("This action paragraph prints at {printed} lines. Keep each paragraph to four or five lines, one beat of action each: split it where the focus shifts."),
-                            None,
-                        ));
-                    }
-                }
-                if !forced {
-                    fade_out(i, &t.trim().to_uppercase(), text, &els, ctx, &mut out);
-                }
-                let off = usize::from(*forced);
-                let chars: Vec<char> = t.chars().collect();
-                // Camera directions, in capitals, in a spec script.
-                if screen && !ctx.shooting {
-                    let mut seen: Vec<(usize, usize)> = Vec::new();
-                    let mut terms: Vec<&str> = CAMERA_DIRECTIONS.to_vec();
-                    terms.sort_by_key(|t| std::cmp::Reverse(t.len()));
-                    for term in terms {
-                        for (a, b, _) in occurrences(&chars, term, false) {
-                            if seen.iter().any(|(x, y)| a < *y && *x < b) {
-                                continue;
-                            }
-                            seen.push((a, b));
-                            out.push(issue(
-                                "camera-spec",
-                                Severity::Info,
-                                i,
-                                (a + off, b + off),
-                                format!("{term} is a camera direction: a spec script leaves the shots to the director. Describe what we see instead (or mark this a shooting script)."),
-                                None,
-                            ));
-                        }
-                    }
-                }
-                // The same word twice in a row: "heads are are bowed".
-                let mut prev: Option<(usize, usize)> = None;
-                let mut k = 0;
-                while k < chars.len() {
-                    if !chars[k].is_alphabetic() {
-                        k += 1;
+            } else if caps {
+                let later = p.later();
+                let note = if p.short.is_some() {
+                    String::new()
+                } else {
+                    " (give them a short name in Cast)".to_string()
+                };
+                self.out.push(issue(
+                    "caps-after-intro",
+                    Severity::Info,
+                    i,
+                    span,
+                    format!(
+                        "{} has already been introduced: from here on, write {later}{note}.",
+                        p.cue
+                    ),
+                    fix(
+                        format!("Write {later}"),
+                        vec![Edit::Replace {
+                            line: i,
+                            text: format!("{before}{later}{after}"),
+                        }],
+                    ),
+                ));
+            }
+        }
+    }
+
+    /// Action runs on (two lines with no blank between), and long paragraphs.
+    fn action_paragraph(&mut self, i: usize) {
+        // Action runs on: two action lines with no blank line between.
+        if self.screen && i > 0 && matches!(self.els[i - 1], Element::Direction { .. }) {
+            self.out.push(issue(
+                "action-run-on",
+                Severity::Info,
+                i,
+                (0, 0),
+                "This runs on from the line above as one paragraph; screenplays separate action paragraphs with a blank line.".into(),
+                fix("Add a blank line before it", vec![Edit::InsertBefore { line: i, text: String::new() }]),
+            ));
+        }
+        // Long action: count printed lines of the paragraph, at its first line.
+        if self.screen && !(i > 0 && matches!(self.els[i - 1], Element::Direction { .. })) {
+            let width = crate::layout::Profile::for_format(self.ctx.format).action.width;
+            let printed: usize = self.els[i..]
+                .iter()
+                .take_while(|e| matches!(e, Element::Direction { .. }))
+                .map(|e| match e {
+                    Element::Direction { text, .. } => crate::layout::wrap(text, width).len(),
+                    _ => 0,
+                })
+                .sum();
+            if printed > 5 {
+                self.out.push(issue(
+                    "long-action",
+                    Severity::Info,
+                    i,
+                    (0, 0),
+                    format!("This action paragraph prints at {printed} lines. Keep each paragraph to four or five lines, one beat of action each: split it where the focus shifts."),
+                    None,
+                ));
+            }
+        }
+    }
+
+    /// Camera directions, in capitals, in a spec script.
+    fn camera_directions(&mut self, i: usize, chars: &[char], off: usize) {
+        if self.screen && !self.ctx.shooting {
+            let mut seen: Vec<(usize, usize)> = Vec::new();
+            for term in camera_terms_longest_first() {
+                for (a, b, _) in occurrences(chars, term, false) {
+                    if seen.iter().any(|(x, y)| a < *y && *x < b) {
                         continue;
                     }
-                    let start = k;
-                    while k < chars.len() && (chars[k].is_alphabetic() || chars[k] == '\'' || chars[k] == '’') {
-                        k += 1;
-                    }
-                    if let Some((ps, pe)) = prev {
-                        let gap: String = chars[pe..start].iter().collect();
-                        let a: String = chars[ps..pe].iter().collect::<String>().to_lowercase();
-                        let b: String = chars[start..k].iter().collect::<String>().to_lowercase();
-                        if a == b && !gap.is_empty() && gap.chars().all(|c| c == ' ') && !DOUBLES.contains(&a.as_str())
-                        {
-                            let fixed: String = chars[..pe].iter().chain(chars[k..].iter()).collect();
-                            let prefix = if *forced { "!" } else { "" };
-                            out.push(issue(
-                                "repeated-word",
-                                Severity::Info,
-                                i,
-                                (pe + off, k + off),
-                                format!("\"{b}\" twice in a row."),
-                                fix(
-                                    format!("Remove the second \"{b}\""),
-                                    vec![Edit::Replace {
-                                        line: i,
-                                        text: format!("{prefix}{fixed}"),
-                                    }],
-                                ),
-                            ));
-                        }
-                    }
-                    prev = Some((start, k));
-                }
-                // What's in a character's head can't be filmed or staged.
-                for w in NOVELISTIC {
-                    for (a, b, _) in occurrences(&chars, w, true) {
-                        let written: String = chars[a..b].iter().collect();
-                        out.push(issue(
-                            "novelistic",
-                            Severity::Info,
-                            i,
-                            (a + off, b + off),
-                            format!("\"{written}\" describes what's going on inside a character; action should only show what the audience can see and hear."),
-                            None,
-                        ));
-                    }
-                }
-                // Grammar (not in dialogue: see grammar.rs).
-                if !ctx.off.contains("grammar") {
-                    let repeated: Vec<(usize, usize)> = out
-                        .iter()
-                        .filter(|x| x.line == i && x.code == "repeated-word")
-                        .map(|x| (x.from - off, x.to - off))
-                        .collect();
-                    for g in crate::grammar::check(t, ctx.english) {
-                        if repeated.iter().any(|(a, b)| g.from < *b + 1 && *a < g.to + 1) {
-                            continue; // already noted as a repeated word
-                        }
-                        let fixed = g.replacement.as_ref().map(|r| {
-                            let before: String = chars[..g.from].iter().collect();
-                            let after: String = chars[g.to..].iter().collect();
-                            let prefix = if *forced { "!" } else { "" };
-                            format!("{prefix}{before}{r}{after}")
-                        });
-                        let label = match &g.replacement {
-                            Some(r) if r.is_empty() => "Remove it".to_string(),
-                            Some(r) => format!("Write \"{r}\""),
-                            None => String::new(),
-                        };
-                        out.push(issue(
-                            "grammar",
-                            Severity::Info,
-                            i,
-                            (g.from + off, g.to + off),
-                            g.message,
-                            fixed.and_then(|text| fix(label, vec![Edit::Replace { line: i, text }])),
-                        ));
-                    }
-                }
-            }
-            Element::SongStart(s) => {
-                if let Some(start) = open_song {
-                    out.push(song_unclosed(start, last_lyric, &lines));
-                }
-                open_song = Some(i);
-                last_lyric = None;
-                for singer in &s.singers {
-                    if !ctx.cast.is_empty() && !ctx.cast.contains(singer) && !GROUP_CUES.contains(&singer.as_str()) {
-                        let span = cols(text, singer);
-                        if let Some(m) = near(singer, &ctx.cast) {
-                            out.push(issue(
-                                "cue-unknown",
-                                Severity::Warning,
-                                i,
-                                span,
-                                format!("{singer} isn't in the cast list. Did you mean {m}?"),
-                                fix(
-                                    format!("Change to {m}"),
-                                    vec![Edit::Replace {
-                                        line: i,
-                                        text: replace_word(text, singer, m).0,
-                                    }],
-                                ),
-                            ));
-                        }
-                    }
-                }
-            }
-            Element::Lyric(_) | Element::LyricBreak => {
-                if open_song.is_none() {
-                    // Only flag the first lyric of a run.
-                    if !matches!(
-                        els.get(i.wrapping_sub(1)),
-                        Some(Element::Lyric(_)) | Some(Element::LyricBreak)
-                    ) || i == 0
-                    {
-                        out.push(issue(
-                            "lyric-outside-song",
-                            Severity::Info,
-                            i,
-                            (0, 0),
-                            "Lyrics outside a song. If they're a song or a reprise, start it with ~ SONG so it's in the song list.".into(),
-                            fix("Start a song here", vec![Edit::InsertBefore { line: i, text: "~ SONG \"\" []".into() }]),
-                        ));
-                    }
-                } else {
-                    last_lyric = Some(i);
-                }
-            }
-            Element::SongEnd => {
-                if open_song.take().is_none() {
-                    out.push(issue(
-                        "song-stray-end",
-                        Severity::Warning,
-                        i,
-                        (0, 0),
-                        "~ END SONG, but no song is open.".into(),
-                        fix("Remove this line", vec![Edit::Delete { line: i }]),
-                    ));
-                }
-            }
-            Element::SceneHeading(h) => {
-                let (setting, _, time) = h.parts();
-                let next_blank = blank(i + 1);
-                if !next_blank {
-                    out.push(issue(
-                        "heading-blank-after",
-                        Severity::Warning,
-                        i,
-                        (0, 0),
-                        "A scene heading needs a blank line after it; other screenwriting apps won't read it as a heading without one.".into(),
-                        fix("Add a blank line after it", vec![Edit::InsertAfter { line: i, text: String::new() }]),
-                    ));
-                }
-                if screen
-                    && matches!(
-                        els[i + 1..].iter().find(|e| !matches!(e, Element::Blank)),
-                        Some(Element::Cue(_))
-                    )
-                {
-                    out.push(issue(
-                        "heading-then-dialogue",
+                    seen.push((a, b));
+                    self.out.push(issue(
+                        "camera-spec",
                         Severity::Info,
                         i,
-                        (0, 0),
-                        "Follow a scene heading with a line of action, to set the scene before anyone speaks.".into(),
+                        (a + off, b + off),
+                        format!("{term} is a camera direction: a spec script leaves the shots to the director. Describe what we see instead (or mark this a shooting script)."),
                         None,
                     ));
                 }
-                // Description in the heading: "- MORNING. SPRING. THE SUN SHINES."
-                if let Some(t) = &time {
-                    let trimmed = t.trim_end_matches('.').trim();
-                    if let Some(dot) = trimmed.find(". ") {
-                        let keep = trimmed[..dot].trim();
-                        let rest = t[dot + 1..].trim();
-                        if !keep.is_empty() && !rest.is_empty() {
-                            let heading = match text.rfind(t.as_str()) {
-                                Some(at) => format!("{}{}{}", &text[..at], keep, &text[at + t.len()..]),
-                                None => text.to_string(),
-                            };
-                            let action = sentence_case(rest);
-                            let mut edits = vec![
-                                Edit::Replace { line: i, text: heading },
-                                Edit::InsertAfter {
-                                    line: i,
-                                    text: String::new(),
-                                },
-                                Edit::InsertAfter {
-                                    line: i,
-                                    text: action.clone(),
-                                },
-                            ];
-                            if !next_blank {
-                                edits.push(Edit::InsertAfter {
-                                    line: i,
-                                    text: String::new(),
-                                });
-                            }
-                            let from = text.rfind(rest).map(|b| text[..b].chars().count()).unwrap_or(0);
-                            out.push(issue(
-                                "heading-description",
-                                Severity::Info,
-                                i,
-                                (from, from + rest.chars().count()),
-                                format!("Keep the heading to place and time; \"{action}\" belongs in the action."),
-                                fix(format!("Move \"{action}\" into the action"), edits),
-                            ));
-                        }
-                    }
-                }
-                // "EXT. A CHURCHYARD": which one?
-                let (_, place, _) = h.parts();
-                let up = place.to_uppercase();
-                if screen && (up.starts_with("A ") || up.starts_with("AN ")) {
-                    out.push(issue(
-                        "heading-vague",
-                        Severity::Info,
-                        i,
-                        cols(text, &place),
-                        format!("\"{place}\" doesn't say which: name the place (a reader and the location manager will want to know)."),
-                        None,
-                    ));
-                }
-                if screen && time.is_none() {
-                    out.push(issue(
-                        "heading-no-time",
-                        Severity::Info,
-                        i,
-                        (0, 0),
-                        "No time of day: headings usually end with one, like - NIGHT.".into(),
-                        None,
-                    ));
-                }
-                if let Some(t) = time {
-                    // The time itself: before any "(FLASHBACK)" or a description after ". ".
-                    let written = t
-                        .split(" (")
-                        .next()
-                        .unwrap_or(&t)
-                        .split(". ")
-                        .next()
-                        .unwrap_or(&t)
-                        .trim()
-                        .trim_end_matches('.');
-                    let core = written.to_uppercase();
-                    if !TIMES.contains(&core.as_str()) {
-                        let suggestion = TIME_ALIASES
-                            .iter()
-                            .find(|(a, _)| *a == core)
-                            .map(|(_, b)| b.to_string())
-                            .or_else(|| {
-                                let times: Vec<String> = TIMES.iter().map(|t| t.to_string()).collect();
-                                near(&core, &times).cloned()
-                            });
-                        if let Some(good) = suggestion {
-                            let span = cols(text, written);
-                            let replaced = replace_word(text, written, &good).0;
-                            out.push(issue(
-                                "heading-time",
-                                Severity::Info,
-                                i,
-                                span,
-                                format!("{core}: did you mean {good}?"),
-                                fix(
-                                    format!("Change to {good}"),
-                                    vec![Edit::Replace {
-                                        line: i,
-                                        text: replaced,
-                                    }],
-                                ),
-                            ));
-                        }
-                    }
-                }
-                if let Some(set) = setting {
-                    let raw = h.raw.trim_start_matches('.');
-                    let written = &raw[..raw.len().min(set.len())];
-                    let bare = set.trim_end_matches('.');
-                    let missing_dot =
-                        raw.to_uppercase().starts_with(bare) && !raw.to_uppercase().starts_with(&set) && bare != "I/E";
-                    if missing_dot && !h.forced {
-                        let span = (0, bare.chars().count());
-                        let fixed = format!("{}{}", set, &raw[bare.len()..]);
-                        out.push(issue(
-                            "heading-setting",
-                            Severity::Info,
-                            i,
-                            span,
-                            format!("Write {set} with a full stop."),
-                            fix(format!("Write {set}"), vec![Edit::Replace { line: i, text: fixed }]),
-                        ));
-                        let _ = written;
-                    }
-                }
             }
-            Element::Parenthetical(t) => {
-                let inner = t.trim().trim_start_matches('(').trim_end_matches(')').trim();
-                let upper = inner.to_uppercase();
-                let as_extension = EXTENSIONS.iter().find(|(w, _)| *w == upper).map(|(_, e)| *e);
-                let cue_line = (i > 0 && matches!(els[i - 1], Element::Cue(_))).then(|| i - 1);
-                // Stage plays write "(off)" under the name, so this is a screen rule.
-                if let (true, Some(ext), Some(c)) = (screen, as_extension, cue_line) {
-                    let ext = if ext == "O.O.V." && ctx.format != Format::TvMulti {
-                        "O.S."
-                    } else {
-                        ext
-                    };
-                    let cue = lines.get(c).copied().unwrap_or("").trim_end();
-                    let (name, dual) = match cue.strip_suffix('^') {
-                        Some(n) => (n.trim_end(), " ^"),
-                        None => (cue, ""),
-                    };
-                    out.push(issue(
-                        "cue-extension",
+        }
+    }
+
+    /// The same word twice in a row: "heads are are bowed".
+    fn repeated_words(&mut self, i: usize, chars: &[char], off: usize, forced: bool) {
+        let mut prev: Option<(usize, usize)> = None;
+        let mut k = 0;
+        while k < chars.len() {
+            if !chars[k].is_alphabetic() {
+                k += 1;
+                continue;
+            }
+            let start = k;
+            while k < chars.len() && (chars[k].is_alphabetic() || chars[k] == '\'' || chars[k] == '’') {
+                k += 1;
+            }
+            if let Some((ps, pe)) = prev {
+                let gap: String = chars[pe..start].iter().collect();
+                let a: String = chars[ps..pe].iter().collect::<String>().to_lowercase();
+                let b: String = chars[start..k].iter().collect::<String>().to_lowercase();
+                if a == b && !gap.is_empty() && gap.chars().all(|c| c == ' ') && !DOUBLES.contains(&a.as_str()) {
+                    let fixed: String = chars[..pe].iter().chain(chars[k..].iter()).collect();
+                    let prefix = if forced { "!" } else { "" };
+                    self.out.push(issue(
+                        "repeated-word",
                         Severity::Info,
                         i,
-                        (0, 0),
-                        format!(
-                            "({ext}) is a technical note, so it goes next to the character's name, not on its own line."
-                        ),
+                        (pe + off, k + off),
+                        format!("\"{b}\" twice in a row."),
                         fix(
-                            format!("Move ({ext}) next to the name"),
-                            vec![
-                                Edit::Replace {
-                                    line: c,
-                                    text: format!("{name} ({ext}){dual}"),
-                                },
-                                Edit::Delete { line: i },
-                            ],
+                            format!("Remove the second \"{b}\""),
+                            vec![Edit::Replace {
+                                line: i,
+                                text: format!("{prefix}{fixed}"),
+                            }],
                         ),
                     ));
-                } else if screen
-                    && ctx.format != Format::TvMulti
-                    && ctx.layout != crate::layout::Layout::BbcStudio
-                    && inner.chars().filter(|c| c.is_alphabetic()).count() >= 2
-                    && !inner.chars().any(|c| c.is_lowercase())
-                {
-                    // Keep character names in capitals: (TO NELL) -> (to NELL).
-                    let names: BTreeSet<&str> = ctx.known.iter().flat_map(|k| k.split_whitespace()).collect();
-                    let lowered: String = t
-                        .split(' ')
-                        .map(|w| {
-                            let bare = w.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'');
-                            if names.contains(bare) {
-                                w.to_string()
-                            } else {
-                                w.to_lowercase()
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    if lowered != *t {
-                        out.push(issue(
-                            "parenthetical-caps",
-                            Severity::Info,
-                            i,
-                            (0, 0),
-                            "Screenplay parentheticals are written in lower case.".into(),
-                            fix(
-                                "Write it in lower case",
-                                vec![Edit::Replace {
-                                    line: i,
-                                    text: text.replacen(t.as_str(), &lowered, 1),
-                                }],
-                            ),
-                        ));
-                    }
                 }
             }
-            Element::Transition { text: t, .. } => {
-                let upper = t.trim().to_uppercase();
-                let film_or_single = matches!(ctx.format, Format::Film | Format::TvSingle);
-                let studio = ctx.layout == crate::layout::Layout::BbcStudio;
-                if upper == "CUT TO:" && film_or_single && !ctx.shooting && !studio {
-                    let mut edits = vec![Edit::Delete { line: i }];
-                    if i > 0 && blank(i - 1) && blank(i + 1) {
-                        edits.insert(0, Edit::Delete { line: i - 1 });
-                    }
-                    out.push(issue(
-                        "transition",
-                        Severity::Info,
+            prev = Some((start, k));
+        }
+    }
+
+    /// What's in a character's head can't be filmed or staged.
+    fn novelistic(&mut self, i: usize, chars: &[char], off: usize) {
+        for w in NOVELISTIC {
+            for (a, b, _) in occurrences(chars, w, true) {
+                let written: String = chars[a..b].iter().collect();
+                self.out.push(issue(
+                    "novelistic",
+                    Severity::Info,
+                    i,
+                    (a + off, b + off),
+                    format!("\"{written}\" describes what's going on inside a character; action should only show what the audience can see and hear."),
+                    None,
+                ));
+            }
+        }
+    }
+
+    /// Grammar (not in dialogue: see grammar.rs).
+    fn grammar(&mut self, i: usize, t: &str, chars: &[char], off: usize, forced: bool) {
+        if !self.ctx.off.contains("grammar") {
+            let repeated: Vec<(usize, usize)> = self
+                .out
+                .iter()
+                .filter(|x| x.line == i && x.code == "repeated-word")
+                .map(|x| (x.from - off, x.to - off))
+                .collect();
+            for g in crate::grammar::check(t, self.ctx.english) {
+                if repeated.iter().any(|(a, b)| g.from < *b + 1 && *a < g.to + 1) {
+                    continue; // already noted as a repeated word
+                }
+                let fixed = g.replacement.as_ref().map(|r| {
+                    let before: String = chars[..g.from].iter().collect();
+                    let after: String = chars[g.to..].iter().collect();
+                    let prefix = if forced { "!" } else { "" };
+                    format!("{prefix}{before}{r}{after}")
+                });
+                let label = match &g.replacement {
+                    Some(r) if r.is_empty() => "Remove it".to_string(),
+                    Some(r) => format!("Write \"{r}\""),
+                    None => String::new(),
+                };
+                self.out.push(issue(
+                    "grammar",
+                    Severity::Info,
+                    i,
+                    (g.from + off, g.to + off),
+                    g.message,
+                    fixed.and_then(|text| fix(label, vec![Edit::Replace { line: i, text }])),
+                ));
+            }
+        }
+    }
+
+    fn song_start(&mut self, i: usize, s: &crate::scene::SongStart, text: &str) {
+        if let Some(start) = self.open_song {
+            self.out.push(song_unclosed(start, self.last_lyric, &self.lines));
+        }
+        self.open_song = Some(i);
+        self.last_lyric = None;
+        for singer in &s.singers {
+            if !self.ctx.cast.is_empty() && !self.ctx.cast.contains(singer) && !GROUP_CUES.contains(&singer.as_str()) {
+                let span = cols(text, singer);
+                if let Some(m) = near(singer, &self.ctx.cast) {
+                    self.out.push(issue(
+                        "cue-unknown",
+                        Severity::Warning,
                         i,
-                        (0, 0),
-                        "Every scene cuts to the next unless you say otherwise, so a spec script leaves out CUT TO:."
-                            .into(),
-                        fix("Remove CUT TO:", edits),
+                        span,
+                        format!("{singer} isn't in the cast list. Did you mean {m}?"),
+                        fix(
+                            format!("Change to {m}"),
+                            vec![Edit::Replace {
+                                line: i,
+                                text: replace_word(text, singer, m).0,
+                            }],
+                        ),
                     ));
                 }
-                fade_out(i, &upper, text, &els, ctx, &mut out);
             }
-            Element::Blank | Element::Centered(_) | Element::PageBreak(_) => {}
-        }
-    }
-    if let Some(start) = open_song {
-        out.push(song_unclosed(start, last_lyric, &lines));
-    }
-
-    for s in &meta.onstage_silent {
-        if spoken.contains(s) {
-            let line = els
-                .iter()
-                .position(|e| matches!(e, Element::Cue(c) if c.speakers().contains(&s.as_str())))
-                .unwrap_or(0);
-            out.push(issue(
-                "silent-speaks",
-                Severity::Info,
-                line,
-                cols(lines.get(line).copied().unwrap_or(""), s),
-                format!("{s} is listed as on stage but silent, but speaks in this scene (see Details)."),
-                None,
-            ));
         }
     }
 
-    // Film and TV scenes usually run a page or three.
-    if matches!(ctx.format, Format::Film | Format::TvSingle | Format::TvMulti) && !ctx.off.contains("scene-long") {
-        let p = crate::layout::Profile::for_format(ctx.format);
-        let scene = crate::scene::Scene {
-            frontmatter: String::new(),
-            meta: meta.clone(),
-            body: els.clone(),
-            trailing_newline: false,
-        };
-        let eighths = crate::layout::eighths(crate::layout::scene_line_count(&scene, &p), &p);
-        let limit = if ctx.format == Format::TvMulti { 6 * 8 } else { 3 * 8 };
-        if eighths > limit {
-            out.push(issue(
-                "scene-long",
-                Severity::Info,
-                0,
+    fn lyric(&mut self, i: usize) {
+        if self.open_song.is_none() {
+            // Only flag the first lyric of a run.
+            if !matches!(
+                self.els.get(i.wrapping_sub(1)),
+                Some(Element::Lyric(_)) | Some(Element::LyricBreak)
+            ) || i == 0
+            {
+                self.out.push(issue(
+                    "lyric-outside-song",
+                    Severity::Info,
+                    i,
+                    (0, 0),
+                    "Lyrics outside a song. If they're a song or a reprise, start it with ~ SONG so it's in the song list.".into(),
+                    fix("Start a song here", vec![Edit::InsertBefore { line: i, text: "~ SONG \"\" []".into() }]),
+                ));
+            }
+        } else {
+            self.last_lyric = Some(i);
+        }
+    }
+
+    fn song_end(&mut self, i: usize) {
+        if self.open_song.take().is_none() {
+            self.out.push(issue(
+                "song-stray-end",
+                Severity::Warning,
+                i,
                 (0, 0),
-                format!(
-                    "This scene runs {} pages; most {} scenes run under {}. Could it be cut, or split?",
-                    crate::layout::eighths_label(eighths),
-                    if ctx.format == Format::Film { "film" } else { "TV" },
-                    limit / 8
-                ),
-                None,
+                "~ END SONG, but no song is open.".into(),
+                fix("Remove this line", vec![Edit::Delete { line: i }]),
             ));
         }
     }
-    out.retain(|i| !ctx.off.contains(i.code));
-    out.sort_by_key(|i| (i.line, i.from));
-    out
+
+    fn heading(&mut self, i: usize, h: &crate::scene::SceneHeading, text: &str) {
+        let (setting, _, time) = h.parts();
+        let next_blank = self.blank(i + 1);
+        if !next_blank {
+            self.out.push(issue(
+                "heading-blank-after",
+                Severity::Warning,
+                i,
+                (0, 0),
+                "A scene heading needs a blank line after it; other screenwriting apps won't read it as a heading without one.".into(),
+                fix("Add a blank line after it", vec![Edit::InsertAfter { line: i, text: String::new() }]),
+            ));
+        }
+        if self.screen
+            && matches!(
+                self.els[i + 1..].iter().find(|e| !matches!(e, Element::Blank)),
+                Some(Element::Cue(_))
+            )
+        {
+            self.out.push(issue(
+                "heading-then-dialogue",
+                Severity::Info,
+                i,
+                (0, 0),
+                "Follow a scene heading with a line of action, to set the scene before anyone speaks.".into(),
+                None,
+            ));
+        }
+        // Description in the heading: "- MORNING. SPRING. THE SUN SHINES."
+        if let Some(t) = &time {
+            let trimmed = t.trim_end_matches('.').trim();
+            if let Some(dot) = trimmed.find(". ") {
+                let keep = trimmed[..dot].trim();
+                let rest = t[dot + 1..].trim();
+                if !keep.is_empty() && !rest.is_empty() {
+                    let heading = match text.rfind(t.as_str()) {
+                        Some(at) => format!("{}{}{}", &text[..at], keep, &text[at + t.len()..]),
+                        None => text.to_string(),
+                    };
+                    let action = sentence_case(rest);
+                    let mut edits = vec![
+                        Edit::Replace { line: i, text: heading },
+                        Edit::InsertAfter {
+                            line: i,
+                            text: String::new(),
+                        },
+                        Edit::InsertAfter {
+                            line: i,
+                            text: action.clone(),
+                        },
+                    ];
+                    if !next_blank {
+                        edits.push(Edit::InsertAfter {
+                            line: i,
+                            text: String::new(),
+                        });
+                    }
+                    let from = text.rfind(rest).map(|b| text[..b].chars().count()).unwrap_or(0);
+                    self.out.push(issue(
+                        "heading-description",
+                        Severity::Info,
+                        i,
+                        (from, from + rest.chars().count()),
+                        format!("Keep the heading to place and time; \"{action}\" belongs in the action."),
+                        fix(format!("Move \"{action}\" into the action"), edits),
+                    ));
+                }
+            }
+        }
+        // "EXT. A CHURCHYARD": which one?
+        let (_, place, _) = h.parts();
+        let up = place.to_uppercase();
+        if self.screen && (up.starts_with("A ") || up.starts_with("AN ")) {
+            self.out.push(issue(
+                "heading-vague",
+                Severity::Info,
+                i,
+                cols(text, &place),
+                format!("\"{place}\" doesn't say which: name the place (a reader and the location manager will want to know)."),
+                None,
+            ));
+        }
+        if self.screen && time.is_none() {
+            self.out.push(issue(
+                "heading-no-time",
+                Severity::Info,
+                i,
+                (0, 0),
+                "No time of day: headings usually end with one, like - NIGHT.".into(),
+                None,
+            ));
+        }
+        if let Some(t) = time {
+            // The time itself: before any "(FLASHBACK)" or a description after ". ".
+            let written = t
+                .split(" (")
+                .next()
+                .unwrap_or(&t)
+                .split(". ")
+                .next()
+                .unwrap_or(&t)
+                .trim()
+                .trim_end_matches('.');
+            let core = written.to_uppercase();
+            if !TIMES.contains(&core.as_str()) {
+                let suggestion = TIME_ALIASES
+                    .iter()
+                    .find(|(a, _)| *a == core)
+                    .map(|(_, b)| b.to_string())
+                    .or_else(|| {
+                        let times: Vec<String> = TIMES.iter().map(|t| t.to_string()).collect();
+                        near(&core, &times).cloned()
+                    });
+                if let Some(good) = suggestion {
+                    let span = cols(text, written);
+                    let replaced = replace_word(text, written, &good).0;
+                    self.out.push(issue(
+                        "heading-time",
+                        Severity::Info,
+                        i,
+                        span,
+                        format!("{core}: did you mean {good}?"),
+                        fix(
+                            format!("Change to {good}"),
+                            vec![Edit::Replace {
+                                line: i,
+                                text: replaced,
+                            }],
+                        ),
+                    ));
+                }
+            }
+        }
+        if let Some(set) = setting {
+            let raw = h.raw.trim_start_matches('.');
+            let bare = set.trim_end_matches('.');
+            let missing_dot =
+                raw.to_uppercase().starts_with(bare) && !raw.to_uppercase().starts_with(&set) && bare != "I/E";
+            if missing_dot && !h.forced {
+                let span = (0, bare.chars().count());
+                let fixed = format!("{}{}", set, &raw[bare.len()..]);
+                self.out.push(issue(
+                    "heading-setting",
+                    Severity::Info,
+                    i,
+                    span,
+                    format!("Write {set} with a full stop."),
+                    fix(format!("Write {set}"), vec![Edit::Replace { line: i, text: fixed }]),
+                ));
+            }
+        }
+    }
+
+    fn parenthetical(&mut self, i: usize, t: &str, text: &str) {
+        let inner = t.trim().trim_start_matches('(').trim_end_matches(')').trim();
+        let upper = inner.to_uppercase();
+        let as_extension = EXTENSIONS.iter().find(|(w, _)| *w == upper).map(|(_, e)| *e);
+        let cue_line = (i > 0 && matches!(self.els[i - 1], Element::Cue(_))).then(|| i - 1);
+        // Stage plays write "(off)" under the name, so this is a self.screen rule.
+        if let (true, Some(ext), Some(c)) = (self.screen, as_extension, cue_line) {
+            let ext = if ext == "O.O.V." && self.ctx.format != Format::TvMulti {
+                "O.S."
+            } else {
+                ext
+            };
+            let cue = self.lines.get(c).copied().unwrap_or("").trim_end();
+            let (name, dual) = match cue.strip_suffix('^') {
+                Some(n) => (n.trim_end(), " ^"),
+                None => (cue, ""),
+            };
+            self.out.push(issue(
+                "cue-extension",
+                Severity::Info,
+                i,
+                (0, 0),
+                format!("({ext}) is a technical note, so it goes next to the character's name, not on its own line."),
+                fix(
+                    format!("Move ({ext}) next to the name"),
+                    vec![
+                        Edit::Replace {
+                            line: c,
+                            text: format!("{name} ({ext}){dual}"),
+                        },
+                        Edit::Delete { line: i },
+                    ],
+                ),
+            ));
+        } else if self.screen
+            && self.ctx.format != Format::TvMulti
+            && self.ctx.layout != crate::layout::Layout::BbcStudio
+            && inner.chars().filter(|c| c.is_alphabetic()).count() >= 2
+            && !inner.chars().any(|c| c.is_lowercase())
+        {
+            // Keep character names in capitals: (TO NELL) -> (to NELL).
+            let names: BTreeSet<&str> = self.ctx.known.iter().flat_map(|k| k.split_whitespace()).collect();
+            let lowered: String = t
+                .split(' ')
+                .map(|w| {
+                    let bare = w.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'');
+                    if names.contains(bare) {
+                        w.to_string()
+                    } else {
+                        w.to_lowercase()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            if lowered != *t {
+                self.out.push(issue(
+                    "parenthetical-caps",
+                    Severity::Info,
+                    i,
+                    (0, 0),
+                    "Screenplay parentheticals are written in lower case.".into(),
+                    fix(
+                        "Write it in lower case",
+                        vec![Edit::Replace {
+                            line: i,
+                            text: text.replacen(t, &lowered, 1),
+                        }],
+                    ),
+                ));
+            }
+        }
+    }
+
+    fn transition(&mut self, i: usize, t: &str, text: &str) {
+        let upper = t.trim().to_uppercase();
+        let film_or_single = matches!(self.ctx.format, Format::Film | Format::TvSingle);
+        let studio = self.ctx.layout == crate::layout::Layout::BbcStudio;
+        if upper == "CUT TO:" && film_or_single && !self.ctx.shooting && !studio {
+            let mut edits = vec![Edit::Delete { line: i }];
+            if i > 0 && self.blank(i - 1) && self.blank(i + 1) {
+                edits.insert(0, Edit::Delete { line: i - 1 });
+            }
+            self.out.push(issue(
+                "transition",
+                Severity::Info,
+                i,
+                (0, 0),
+                "Every scene cuts to the next unless you say otherwise, so a spec script leaves out CUT TO:.".into(),
+                fix("Remove CUT TO:", edits),
+            ));
+        }
+        fade_out(i, &upper, text, &self.els, self.ctx, &mut self.out);
+    }
+
+    /// Rules over the whole scene, then the issues in order, less those switched off.
+    fn finish(mut self, meta: &SceneMeta) -> Vec<Issue> {
+        if let Some(start) = self.open_song {
+            self.out.push(song_unclosed(start, self.last_lyric, &self.lines));
+        }
+        for s in &meta.onstage_silent {
+            if self.spoken.contains(s) {
+                let line = self
+                    .els
+                    .iter()
+                    .position(|e| matches!(e, Element::Cue(c) if c.speakers().contains(&s.as_str())))
+                    .unwrap_or(0);
+                self.out.push(issue(
+                    "silent-speaks",
+                    Severity::Info,
+                    line,
+                    cols(self.lines.get(line).copied().unwrap_or(""), s),
+                    format!("{s} is listed as on stage but silent, but speaks in this scene (see Details)."),
+                    None,
+                ));
+            }
+        }
+        // Film and TV scenes usually run a page or three.
+        if matches!(self.ctx.format, Format::Film | Format::TvSingle | Format::TvMulti)
+            && !self.ctx.off.contains("scene-long")
+        {
+            let p = crate::layout::Profile::for_format(self.ctx.format);
+            let scene = crate::scene::Scene {
+                frontmatter: String::new(),
+                meta: meta.clone(),
+                body: self.els.clone(),
+                trailing_newline: false,
+            };
+            let eighths = crate::layout::eighths(crate::layout::scene_line_count(&scene, &p), &p);
+            let limit = if self.ctx.format == Format::TvMulti {
+                6 * 8
+            } else {
+                3 * 8
+            };
+            if eighths > limit {
+                self.out.push(issue(
+                    "scene-long",
+                    Severity::Info,
+                    0,
+                    (0, 0),
+                    format!(
+                        "This scene runs {} pages; most {} scenes run under {}. Could it be cut, or split?",
+                        crate::layout::eighths_label(eighths),
+                        if self.ctx.format == Format::Film { "film" } else { "TV" },
+                        limit / 8
+                    ),
+                    None,
+                ));
+            }
+        }
+        let ctx = &self.ctx;
+        self.out.retain(|i| !ctx.off.contains(i.code));
+        self.out.sort_by_key(|i| (i.line, i.from));
+        self.out
+    }
 }
 
 /// FADE OUT. ends a film or a TV act; between scenes it's FADE TO:.

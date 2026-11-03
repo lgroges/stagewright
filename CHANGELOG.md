@@ -7,6 +7,11 @@ change, the cursor, is listed under 0.3.0.)
 
 ## Unreleased
 
+- The script check is about four times faster as you type in long projects (only who
+  has been introduced is followed through the earlier scenes), and grammar results
+  are remembered for paragraphs that haven't changed.
+- Saving a scene reads the project once, not twice.
+
 ## 0.7.0 (2026-11-03)
 
 - **Grammar check** in action and stage directions, by Harper, which runs on your

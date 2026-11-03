@@ -7,27 +7,21 @@
 // Needs Playwright with Chromium available (require('playwright')).
 
 const { chromium } = require("playwright");
+const { repo, bin, check, fail, finish, serverUp } = require("./lib.cjs");
 const { spawn, execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const repo = path.resolve(__dirname, "../..");
-const bin = path.join(repo, "target/debug/stagewright" + (process.platform === "win32" ? ".exe" : ""));
 const port = 4950 + Math.floor(Math.random() * 40);
 const shots = process.env.SHOTS_DIR;
 
-let failures = 0;
-function check(name, ok, detail = "") {
-  console.log(`${ok ? "ok  " : "FAIL"} ${name}${ok ? "" : " — " + detail}`);
-  if (!ok) failures++;
-}
 
 (async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "sw-screen-"));
   const root = path.join(tmp, "night-shift");
   const server = spawn(bin, ["serve", "--port", String(port), "--static", path.join(repo, "app/dist")], { stdio: "pipe" });
-  await new Promise((r) => setTimeout(r, 800));
+  await serverUp(port);
 
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
@@ -192,12 +186,11 @@ function check(name, ok, detail = "") {
     check("no browser errors", errors.length === 0, errors.join(" | "));
   } catch (e) {
     console.error(e);
-    failures++;
+    fail();
     await snap("screen-error.png");
   } finally {
     await browser.close();
     server.kill();
   }
-  console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
-  process.exit(failures ? 1 : 0);
+  finish();
 })();

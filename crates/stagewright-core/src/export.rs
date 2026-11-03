@@ -9,26 +9,9 @@ use crate::pdf::{PdfPage, PdfSettings, render};
 use crate::project::{ActRef, Project, SceneFile};
 use crate::scene::{Element, serialize_body};
 
-const WORDS: &[&str] = &[
-    "ZERO", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE", "TEN",
-];
-
+/// ACT ONE, PROLOGUE, TEASER, or the act's own title, in capitals.
 fn act_heading(p: &Project, act: u32) -> String {
-    if let Some(t) = p
-        .meta
-        .acts
-        .iter()
-        .find(|a| a.number == act)
-        .and_then(|a| a.title.clone())
-    {
-        return t.to_uppercase();
-    }
-    match (act, p.meta.format) {
-        (0, Format::Stage) => "PROLOGUE".into(),
-        (0, Format::Film) => "OPENING".into(),
-        (0, _) => "TEASER".into(),
-        (n, _) => format!("ACT {}", WORDS.get(n as usize).copied().unwrap_or("?")),
-    }
+    p.meta.act_name(act).to_uppercase()
 }
 
 fn scene_letter(i: usize) -> String {

@@ -4,35 +4,22 @@
 //   cargo build -p stagewright && npm run build && node e2e/check.cjs
 
 const { chromium } = require("playwright");
+const { repo, bin, check, fail, finish, copyDir, serverUp } = require("./lib.cjs");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const repo = path.resolve(__dirname, "../..");
-const bin = path.join(repo, "target/debug/stagewright" + (process.platform === "win32" ? ".exe" : ""));
 const shots = process.env.SHOTS_DIR;
 
-let failures = 0;
-function check(name, ok, detail = "") {
-  console.log(`${ok ? "ok  " : "FAIL"} ${name}${ok ? "" : " — " + detail}`);
-  if (!ok) failures++;
-}
 
-function copyDir(from, to) {
-  fs.mkdirSync(to, { recursive: true });
-  for (const e of fs.readdirSync(from, { withFileTypes: true })) {
-    const a = path.join(from, e.name), b = path.join(to, e.name);
-    e.isDirectory() ? copyDir(a, b) : fs.copyFileSync(a, b);
-  }
-}
 
 async function open(browser, fixture) {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "sw-check-"));
   copyDir(path.join(repo, "fixtures", fixture), project);
   const port = 5400 + Math.floor(Math.random() * 300);
   const server = spawn(bin, ["serve", project, "--port", String(port), "--static", path.join(repo, "app/dist")], { stdio: "pipe" });
-  await new Promise((r) => setTimeout(r, 800));
+  await serverUp(port);
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
@@ -241,7 +228,7 @@ async function open(browser, fixture) {
     check("no browser errors (tv)", s3.errors.length === 0, s3.errors.join(" | "));
   } catch (e) {
     console.error(e);
-    failures++;
+    fail();
     if (s1) await snap(s1.page, "check-error.png");
   } finally {
     await browser.close();
@@ -249,6 +236,5 @@ async function open(browser, fixture) {
     s2?.server.kill();
     s3?.server.kill();
   }
-  console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
-  process.exit(failures ? 1 : 0);
+  finish();
 })();

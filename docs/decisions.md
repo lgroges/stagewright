@@ -4,6 +4,30 @@ Choices made about Stagewright and why, newest first. Each entry: what we chose,
 the reason, and what we didn't do. Ideas still open or turned down are in
 [ideas.md](ideas.md).
 
+## 2026-11-03 · A clean-up sweep
+
+A pass over the whole codebase for needless work and duplication.
+
+- **The script check is a `Scan` with one method per rule group** (cues, directions,
+  headings, parentheticals, songs, transitions) instead of one 800-line function.
+  Behaviour is unchanged; the tests and every message are the same.
+- **As you type, earlier scenes are only read for introductions**
+  (`note_introductions`), not fully checked: about four times faster on a 144-scene
+  series. Cast names for the check come straight from the cues (`speakers_in`), with
+  no page layout.
+- **Grammar results are cached by paragraph**, since most paragraphs don't change
+  between checks. Camera terms are sorted once, not on every line.
+- **One copy of shared helpers**: act names (`ProjectMeta::act_name`), `title_case`,
+  the group cues (ALL), double-spaced dialogue, and the end-to-end suites' helpers
+  (`app/e2e/lib.cjs`, which also waits for each test server to be listening rather
+  than sleeping).
+- Saving a scene no longer loads the project twice; the grammar checker is warmed up
+  once per project open, not twice.
+- App: names exported but only used in their own file are no longer exported, and an
+  unused dependency (@lezer/highlight) is gone.
+- Left for later (see ideas.md): every API call still loads the whole project, and
+  `ops.rs` and the app's `state.svelte.ts` could be split into smaller modules.
+
 ## 2026-11-03 · A grammar checker: Harper, locally
 
 The script check gets grammar from Harper (harper-core, Apache-2.0), a Rust grammar

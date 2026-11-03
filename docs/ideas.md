@@ -18,6 +18,16 @@ it's settled, either built or turned down for good.
   check's. At present the scene list counts them per scene.
 - **Printing comments** in a PDF export (in the margin or as endnotes), for a read-through.
 
+- **Cache the loaded project in the API.** Every command reads and parses every scene
+  (about 5 ms for a 144-scene series in a release build, more for the script check's
+  context). A cache keyed on file times would make big projects snappier. Found in
+  the clean-up sweep, 2026-11-03.
+- **Split `crates/stagewright-api/src/ops.rs` (about 1,100 lines) and the app's
+  `state.svelte.ts` (about 800)** into modules by area: scenes, acts and episodes,
+  project files, co-writing, export; and comments, cast, co-writing in the app.
+- **List Playwright as a dev dependency of the app** so the end-to-end suites declare
+  what they need (CI installs it separately today).
+
 ## Turned down
 
 - **Importing from Google Docs.** Scripts are converted by hand with Claude instead.

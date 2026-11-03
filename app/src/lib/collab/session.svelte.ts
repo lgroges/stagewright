@@ -36,14 +36,14 @@ import {
   type SharedMeta,
 } from "./model";
 
-export interface Peer {
+interface Peer {
   clientId: number;
   name: string;
   color: string;
   scene: string | null;
 }
 
-export type ConnStatus = "connecting" | "connected" | "offline";
+type ConnStatus = "connecting" | "connected" | "offline";
 
 const PERSIST_DELAY_MS = 1200;
 const RECONCILE_DELAY_MS = 400;
@@ -53,43 +53,43 @@ const DISK = "disk"; // origin for edits folded in from files
 
 // ------------------------------------------------------------------ small helpers
 
-export function toBase64(bytes: Uint8Array): string {
+function toBase64(bytes: Uint8Array): string {
   let s = "";
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(s);
 }
 
-export function fromBase64(b64: string): Uint8Array {
+function fromBase64(b64: string): Uint8Array {
   const s = atob(b64);
   const out = new Uint8Array(s.length);
   for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
   return out;
 }
 
-export function newRoomId(): string {
+function newRoomId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(18));
   return toBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export function newSceneId(): string {
+function newSceneId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(6));
   return "sc-" + [...bytes].map((b) => b.toString(36).padStart(2, "0")).join("").slice(0, 10);
 }
 
 const COLORS = ["#c0392b", "#2f6e74", "#8e44ad", "#b7791f", "#2c7a4b", "#2b5797", "#c2185b", "#5d6d7e"];
-export function colorFor(name: string): string {
+function colorFor(name: string): string {
   let h = 0;
   for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return COLORS[h % COLORS.length];
 }
 
 /** Invite codes carry the relay address, the room (the secret) and the play's title. */
-export function inviteCode(c: { relay: string; room: string }, title: string): string {
+function inviteCode(c: { relay: string; room: string }, title: string): string {
   const json = JSON.stringify({ r: c.relay, k: c.room, t: title });
   return "sw1." + toBase64(new TextEncoder().encode(json)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export function readInvite(code: string): { relay: string; room: string; title: string } {
+function readInvite(code: string): { relay: string; room: string; title: string } {
   const m = code.trim().match(/^sw1\.([A-Za-z0-9_-]+)$/);
   if (!m) throw new Error("That doesn't look like a Stagewright invite code (it starts with sw1.).");
   const b64 = m[1].replace(/-/g, "+").replace(/_/g, "/");

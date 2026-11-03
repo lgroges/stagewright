@@ -13,7 +13,7 @@ import { Decoration, EditorView, type DecorationSet } from "@codemirror/view";
 import DiffMatchPatch from "diff-match-patch";
 import type { CommentAnchor } from "../api";
 
-export const CONTEXT = 40;
+const CONTEXT = 40;
 
 /** Where a passage is in a scene body (character offsets). */
 export interface Span {
@@ -180,7 +180,7 @@ export function commentSpans(state: EditorState): Map<string, Span> {
 }
 
 /** The comment highlighted at `pos`, the innermost (shortest) if several overlap. */
-export function commentAt(state: EditorState, pos: number): string | null {
+function commentAt(state: EditorState, pos: number): string | null {
   let best: { id: string; len: number } | null = null;
   for (const [id, s] of commentSpans(state)) {
     if (s.from <= pos && pos <= s.to && (!best || s.to - s.from < best.len)) best = { id, len: s.to - s.from };
@@ -188,7 +188,7 @@ export function commentAt(state: EditorState, pos: number): string | null {
   return best?.id ?? null;
 }
 
-export const commentTheme = EditorView.baseTheme({
+const commentTheme = EditorView.baseTheme({
   ".sw-comment": {
     backgroundColor: "color-mix(in srgb, #f2c94c 30%, transparent)",
     borderBottom: "2px solid color-mix(in srgb, #e0a800 70%, transparent)",

@@ -101,7 +101,33 @@ fn is_standard(l: &crate::layout::Layout) -> bool {
     *l == crate::layout::Layout::Standard
 }
 
+const NUMBER_WORDS: &[&str] = &[
+    "Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+];
+
+/// "Act One" … "Act Ten", then "Act 11".
+pub fn numbered_act(n: u32) -> String {
+    match NUMBER_WORDS.get(n as usize) {
+        Some(w) => format!("Act {w}"),
+        None => format!("Act {n}"),
+    }
+}
+
 impl ProjectMeta {
+    /// An act's name: its title in project.yaml, or "Act Two"; act 0 is the
+    /// Prologue (stage), Opening (film) or Teaser (TV).
+    pub fn act_name(&self, act: u32) -> String {
+        if let Some(t) = self.acts.iter().find(|a| a.number == act).and_then(|a| a.title.clone()) {
+            return t;
+        }
+        match (act, self.format) {
+            (0, Format::Stage) => "Prologue".into(),
+            (0, Format::Film) => "Opening".into(),
+            (0, _) => "Teaser".into(),
+            (n, _) => numbered_act(n),
+        }
+    }
+
     /// Whether (CONT'D) is added automatically in this project.
     pub fn auto_contd(&self) -> bool {
         self.auto_contd.unwrap_or(self.format.is_screen())

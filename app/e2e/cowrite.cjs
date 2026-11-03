@@ -5,46 +5,19 @@
 // Needs Playwright with Chromium available (require('playwright')).
 
 const { chromium } = require("playwright");
+const { repo, bin, check, fail, finish, copyDir, until, serverUp } = require("./lib.cjs");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const repo = path.resolve(__dirname, "../..");
-const bin = path.join(repo, "target/debug/stagewright" + (process.platform === "win32" ? ".exe" : ""));
 const dist = path.join(repo, "app/dist");
 const shots = process.env.SHOTS_DIR;
 const base = 5100 + Math.floor(Math.random() * 400);
 const ports = { relay: base, a: base + 1, b: base + 2 };
 
-let failures = 0;
-function check(name, ok, detail = "") {
-  console.log(`${ok ? "ok  " : "FAIL"} ${name}${ok ? "" : " — " + detail}`);
-  if (!ok) failures++;
-}
 
-function copyDir(from, to) {
-  fs.mkdirSync(to, { recursive: true });
-  for (const e of fs.readdirSync(from, { withFileTypes: true })) {
-    const a = path.join(from, e.name), b = path.join(to, e.name);
-    e.isDirectory() ? copyDir(a, b) : fs.copyFileSync(a, b);
-  }
-}
 
-async function until(fn, ms = 10000, what = "condition") {
-  const end = Date.now() + ms;
-  let last;
-  while (Date.now() < end) {
-    try {
-      last = await fn();
-      if (last) return last;
-    } catch (e) {
-      last = e;
-    }
-    await new Promise((r) => setTimeout(r, 150));
-  }
-  throw new Error(`timed out waiting for ${what}${last instanceof Error ? ": " + last.message : ""}`);
-}
 
 /** Folder contents that must match between writers: act folders, file names, bodies, key metadata. */
 function folderState(root) {
@@ -120,7 +93,7 @@ function sceneFile(root, id) {
   let relay = startRelay();
   procs.push(spawn(bin, ["serve", dirA, "--port", String(ports.a), "--static", dist], { stdio: "pipe" }));
   procs.push(spawn(bin, ["serve", "--port", String(ports.b), "--static", dist], { stdio: "pipe" }));
-  await new Promise((r) => setTimeout(r, 900));
+  await Promise.all([serverUp(ports.a), serverUp(ports.b), serverUp(ports.relay)]);
 
   const browser = await chromium.launch();
   const errors = [];
@@ -308,7 +281,7 @@ function sceneFile(root, id) {
     check("no unexpected browser errors", errors.length === 0, errors.join(" | "));
   } catch (e) {
     console.error(e);
-    failures++;
+    fail();
     try {
       const pages = browser.contexts().flatMap((c) => c.pages());
       for (const [i, p] of pages.entries()) await snap(p, `cowrite-error-${i}.png`);
@@ -318,6 +291,5 @@ function sceneFile(root, id) {
     for (const p of procs) p.kill();
     fs.rmSync(tmp, { recursive: true, force: true });
   }
-  console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
-  process.exit(failures ? 1 : 0);
+  finish();
 })();

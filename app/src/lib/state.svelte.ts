@@ -18,8 +18,8 @@ import {
 } from "./api";
 import { CollabSession } from "./collab/session.svelte";
 
-export type SaveStatus = "saved" | "unsaved" | "saving" | "conflict" | "error";
-export type MainView = { kind: "script" } | { kind: "production" } | { kind: "cast" } | { kind: "file"; name: string };
+type SaveStatus = "saved" | "unsaved" | "saving" | "conflict" | "error";
+type MainView = { kind: "script" } | { kind: "production" } | { kind: "cast" } | { kind: "file"; name: string };
 
 interface OpenScene {
   id: string;
@@ -41,7 +41,7 @@ interface OpenScene {
 const RECENT_KEY = "stagewright.recent";
 const RELAY_KEY = "stagewright.relay";
 const NAME_KEY = "stagewright.name";
-export const DEFAULT_RELAY = "ws://127.0.0.1:4444";
+const DEFAULT_RELAY = "ws://127.0.0.1:4444";
 
 function readPref(key: string, fallback: string): string {
   try {

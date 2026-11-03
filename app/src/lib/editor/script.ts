@@ -15,7 +15,7 @@ export type ElementType = "direction" | "cue" | "parenthetical" | "dialogue" | "
 /** Marks a line the writer has started as a character cue but not finished. */
 export const setPending = StateEffect.define<{ pos: number; on: boolean }>();
 
-export interface ScriptInfo {
+interface ScriptInfo {
   /** Line-start positions of pending cues. */
   pending: number[];
   /** Display kind of every line (index = line number - 1). */
@@ -88,7 +88,7 @@ const SPEECH: Kind[] = ["cue", "parenthetical", "dialogue"];
 const SONG_PARTS: Kind[] = ["song_start", "lyric", "lyric_break"];
 
 /** The cue that owns line `n` (1-based), if `n` is inside a speech. */
-export function speechCue(state: EditorState, n: number): string | null {
+function speechCue(state: EditorState, n: number): string | null {
   const { kinds } = info(state);
   for (let i = n; i >= 1; i--) {
     const k = kinds[i - 1];
@@ -100,7 +100,7 @@ export function speechCue(state: EditorState, n: number): string | null {
 }
 
 /** Is line `n` inside a song that has started but not ended? */
-export function inOpenSong(state: EditorState, n: number): boolean {
+function inOpenSong(state: EditorState, n: number): boolean {
   const { kinds } = info(state);
   for (let i = n - 1; i >= 1; i--) {
     const k = kinds[i - 1];
@@ -135,7 +135,7 @@ function sentenceCase(s: string): string {
 }
 
 /** Strip any element marker so the text can be re-typed as something else. */
-export function bareText(text: string, kind: Kind): string {
+function bareText(text: string, kind: Kind): string {
   switch (kind) {
     case "lyric":
       return text.replace(/^~ ?/, "");

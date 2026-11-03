@@ -552,6 +552,21 @@ fn cue_text(els: &[Element], contd: bool) -> (String, String) {
     }
 }
 
+/// Double-spaced dialogue (multi-camera and studio sitcom): a blank line between
+/// lines, and before this paragraph unless it follows the cue or a parenthetical.
+fn add_double_spaced(lines: &mut Vec<Line>, new: Vec<Line>) {
+    if lines.len() > 1 && lines.last().is_some_and(|l| !l.is_blank() && !l.text.starts_with('(')) {
+        lines.push(Line::blank());
+    }
+    let n = new.len();
+    for (k, l) in new.into_iter().enumerate() {
+        lines.push(l);
+        if k + 1 < n {
+            lines.push(Line::blank());
+        }
+    }
+}
+
 fn speech_lines(els: &[Element], s: &SpeechSlots, double: bool, contd: bool) -> Vec<Line> {
     let mut lines = set(&cue_text(els, contd).1, &s.cue);
     for el in &els[1..] {
@@ -563,17 +578,12 @@ fn speech_lines(els: &[Element], s: &SpeechSlots, double: bool, contd: bool) -> 
                 } else {
                     &s.dialogue
                 };
-                let mut new = set(t, slot);
+                let new = set(t, slot);
                 if double {
-                    // Multi-camera: a blank line between dialogue lines, not after a cue or parenthetical.
-                    let last = lines.last().unwrap();
-                    if lines.len() > 1 && !last.is_blank() && !last.text.starts_with('(') {
-                        lines.push(Line::blank());
-                    }
-                    new = new.into_iter().flat_map(|l| [l, Line::blank()]).collect();
-                    new.pop();
+                    add_double_spaced(&mut lines, new);
+                } else {
+                    lines.extend(new);
                 }
-                lines.extend(new);
             }
             Element::LyricBreak => lines.push(Line::blank()),
             Element::SongStart(song) => {
@@ -680,15 +690,12 @@ fn inline_speech(els: &[Element], p: &Profile, show_name: bool) -> Vec<Line> {
                 lines.push(Line::blank());
                 continue;
             }
-            let mut new = set(t, s);
+            let new = set(t, s);
             if p.double_dialogue {
-                if lines.len() > 1 && !lines.last().unwrap().is_blank() {
-                    lines.push(Line::blank());
-                }
-                new = new.into_iter().flat_map(|l| [l, Line::blank()]).collect();
-                new.pop();
+                add_double_spaced(&mut lines, new);
+            } else {
+                lines.extend(new);
             }
-            lines.extend(new);
         }
     }
     lines

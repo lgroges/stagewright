@@ -7,22 +7,16 @@
 //   cargo build -p stagewright && npm run build && node e2e/update.cjs
 
 const { chromium } = require("playwright");
+const { repo, bin, check, fail, finish, copyDir, serverUp } = require("./lib.cjs");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const repo = path.resolve(__dirname, "../..");
-const bin = path.join(repo, "target/debug/stagewright" + (process.platform === "win32" ? ".exe" : ""));
 const port = 5050 + Math.floor(Math.random() * 40);
 const shots = process.env.SHOTS_DIR;
 const version = JSON.parse(fs.readFileSync(path.join(__dirname, "../package.json"), "utf8")).version;
 
-let failures = 0;
-function check(name, ok, detail = "") {
-  console.log(`${ok ? "ok  " : "FAIL"} ${name}${ok ? "" : " — " + detail}`);
-  if (!ok) failures++;
-}
 
 function fakeTauri() {
   const callbacks = {};
@@ -80,19 +74,12 @@ function fakeTauri() {
   };
 }
 
-function copyDir(from, to) {
-  fs.mkdirSync(to, { recursive: true });
-  for (const e of fs.readdirSync(from, { withFileTypes: true })) {
-    const a = path.join(from, e.name), b = path.join(to, e.name);
-    e.isDirectory() ? copyDir(a, b) : fs.copyFileSync(a, b);
-  }
-}
 
 (async () => {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "sw-update-"));
   copyDir(path.join(repo, "fixtures/stage-sample"), project);
   const server = spawn(bin, ["serve", project, "--port", String(port), "--static", path.join(repo, "app/dist")], { stdio: "pipe" });
-  await new Promise((r) => setTimeout(r, 800));
+  await serverUp(port);
 
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -168,12 +155,11 @@ function copyDir(from, to) {
     check("no browser errors", errors.length === 0, errors.join(" | "));
   } catch (e) {
     console.error(e);
-    failures++;
+    fail();
     await snap("update-error.png");
   } finally {
     await browser.close();
     server.kill();
   }
-  console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
-  process.exit(failures ? 1 : 0);
+  finish();
 })();

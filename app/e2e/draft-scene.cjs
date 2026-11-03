@@ -6,35 +6,22 @@
 // Needs Playwright with Chromium available (require('playwright')).
 
 const { chromium } = require("playwright");
+const { repo, bin, check, fail, finish, copyDir, serverUp } = require("./lib.cjs");
 const { spawn, execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const repo = path.resolve(__dirname, "../..");
-const bin = path.join(repo, "target/debug/stagewright" + (process.platform === "win32" ? ".exe" : ""));
 const port = 4890 + Math.floor(Math.random() * 50);
 const shots = process.env.SHOTS_DIR;
 
-function copyDir(from, to) {
-  fs.mkdirSync(to, { recursive: true });
-  for (const e of fs.readdirSync(from, { withFileTypes: true })) {
-    const a = path.join(from, e.name), b = path.join(to, e.name);
-    e.isDirectory() ? copyDir(a, b) : fs.copyFileSync(a, b);
-  }
-}
 
-let failures = 0;
-function check(name, ok, detail = "") {
-  console.log(`${ok ? "ok  " : "FAIL"} ${name}${ok ? "" : " — " + detail}`);
-  if (!ok) failures++;
-}
 
 (async () => {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "sw-e2e-"));
   copyDir(path.join(repo, "fixtures/stage-sample"), project);
   const server = spawn(bin, ["serve", project, "--port", String(port), "--static", path.join(repo, "app/dist")], { stdio: "pipe" });
-  await new Promise((r) => setTimeout(r, 800));
+  await serverUp(port);
 
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -244,13 +231,12 @@ function check(name, ok, detail = "") {
     check("no browser errors", errors.length === 0, errors.join(" | "));
   } catch (e) {
     console.error(e);
-    failures++;
+    fail();
     await snap("e2e-error.png");
   } finally {
     await browser.close();
     server.kill();
     fs.rmSync(project, { recursive: true, force: true });
   }
-  console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
-  process.exit(failures ? 1 : 0);
+  finish();
 })();

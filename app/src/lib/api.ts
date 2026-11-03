@@ -3,7 +3,7 @@ import type { Issue } from "./editor/check";
 // Tauri's `api` command; in a browser they go to `stagewright serve` over HTTP.
 // Both reach the same Rust code.
 
-export interface ApiErrorBody {
+interface ApiErrorBody {
   code: string;
   message: string;
   detail?: { version?: string } & Record<string, unknown>;
@@ -200,7 +200,7 @@ export interface ProjectFile {
 
 // ---------------------------------------------------------------- cast and places
 
-export type Entry = Record<string, unknown> & { id: string };
+type Entry = Record<string, unknown> & { id: string };
 
 export interface CastCharacter {
   entry: Entry & { cue: string; name?: string; short?: string; description?: string; track?: string | null };
@@ -319,7 +319,7 @@ async function transport(cmd: string, args: Record<string, unknown>): Promise<un
 // Calls run one at a time, in order. Saves and metadata edits both depend on
 // the scene's latest version, so they must never overlap.
 let chain: Promise<unknown> = Promise.resolve();
-export function call<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
+function call<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   const run = chain.then(() => transport(cmd, args) as Promise<T>);
   chain = run.catch(() => undefined);
   return run;
@@ -339,7 +339,7 @@ export interface CollabConfig {
   color: string;
 }
 
-export interface DiskSnapshotBody {
+interface DiskSnapshotBody {
   view: ProjectView;
   scenes: { id: string; act: number; episode: number | null; meta: SceneMeta; body: string; version: string }[];
   files: ProjectFile[];

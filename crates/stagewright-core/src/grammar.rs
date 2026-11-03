@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, OnceLock};
 
 /// Which English the grammar check expects (`dialect:` in project.yaml).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum English {
     #[default]
@@ -160,8 +160,29 @@ fn house_rules(text: &str) -> Vec<Finding> {
     out
 }
 
+/// Findings already worked out, by paragraph: most paragraphs don't change between
+/// one check and the next (as you type, or when Production checks every scene).
+type Cache = std::collections::HashMap<(English, String), Vec<Finding>>;
+static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
+const CACHE_LIMIT: usize = 20_000;
+
 /// Grammar findings for one paragraph of action or direction.
 pub fn check(text: &str, english: English) -> Vec<Finding> {
+    let cache = CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    let key = (english, text.to_string());
+    if let Some(hit) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+        return hit.clone();
+    }
+    let found = check_uncached(text, english);
+    let mut c = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if c.len() >= CACHE_LIMIT {
+        c.clear();
+    }
+    c.insert(key, found.clone());
+    found
+}
+
+fn check_uncached(text: &str, english: English) -> Vec<Finding> {
     let mut out = house_rules(text);
     let lints = with_linter(english, |lg| lg.lint(&Document::new_curated(text, &PlainEnglish)));
     let chars: Vec<char> = text.chars().collect();

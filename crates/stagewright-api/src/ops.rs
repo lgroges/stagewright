@@ -110,26 +110,6 @@ fn act_dir(root: &Path, a: ActRef) -> PathBuf {
     a.dir(root)
 }
 
-const NUMBER_WORDS: &[&str] = &[
-    "Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
-];
-
-fn act_title(meta: &ProjectMeta, act: u32) -> String {
-    meta.acts
-        .iter()
-        .find(|a| a.number == act)
-        .and_then(|a| a.title.clone())
-        .unwrap_or_else(|| match (act, meta.format) {
-            (0, Format::Stage) => "Prologue".into(),
-            (0, Format::Film) => "Opening".into(),
-            (0, _) => "Teaser".into(),
-            (n, _) => match NUMBER_WORDS.get(n as usize) {
-                Some(w) => format!("Act {w}"),
-                None => format!("Act {n}"),
-            },
-        })
-}
-
 fn episode_title(p: &Project, e: u32) -> String {
     p.episode_title(e).unwrap_or_else(|| format!("Episode {e}"))
 }
@@ -149,7 +129,7 @@ pub(crate) fn scene_label(sf: &stagewright_core::project::SceneFile) -> String {
 }
 
 fn act_json(p: &Project, a: ActRef) -> Value {
-    json!({ "episode": a.episode, "number": a.act, "title": act_title(&p.meta, a.act) })
+    json!({ "episode": a.episode, "number": a.act, "title": p.meta.act_name(a.act) })
 }
 
 fn order_prefix(act: u32, index: usize) -> String {
@@ -299,16 +279,20 @@ pub fn project_view(root: &Path) -> ApiResult {
 
 pub fn scene_read(root: &Path, id: &str) -> ApiResult {
     let p = load(root)?;
-    let sf = find_scene(&p, id)?;
+    scene_doc(&p, find_scene(&p, id)?)
+}
+
+/// A scene as the editor wants it: metadata, text, version and summary.
+fn scene_doc(p: &Project, sf: &stagewright_core::project::SceneFile) -> ApiResult {
     let bytes = fs::read(&sf.path).map_err(|e| io_err(&sf.path, e))?;
     let st = scene_stats(&sf.scene, &p.meta);
     Ok(json!({
-        "id": id,
+        "id": sf.scene.meta.id,
         "meta": sf.scene.meta,
         "body": stagewright_core::scene::serialize_body(&sf.scene.body)
             + if sf.scene.trailing_newline { "\n" } else { "" },
         "version": version_of(&bytes),
-        "summary": summary(&p, sf, &st),
+        "summary": summary(p, sf, &st),
     }))
 }
 
@@ -318,9 +302,18 @@ pub fn scene_save(root: &Path, id: &str, body: &str, base_version: &str) -> ApiR
     check_version(&sf.path, base_version)?;
     let body = body.replace("\r\n", "\n");
     let source = format!("---\n{}---\n{}", sf.scene.frontmatter, body);
-    validated(&source)?;
+    let scene = validated(&source)?;
     write_atomic(&sf.path, &source)?;
-    scene_read(root, id)
+    // The project as it now is, without reading every scene again.
+    let mut p = p;
+    let sf = p
+        .scenes
+        .iter_mut()
+        .find(|s| s.scene.meta.id == id)
+        .expect("found above");
+    sf.scene = scene;
+    let sf = p.scenes.iter().find(|s| s.scene.meta.id == id).expect("found above");
+    scene_doc(&p, sf)
 }
 
 fn validate_patch(key: &str, v: &Value, p: &Project) -> Result<(), ApiError> {
@@ -875,10 +868,7 @@ pub fn yaml_remove_act(text: &str, act: u32, series: bool) -> Result<String, Api
         return Ok(text.to_string());
     }
     let shift_from = if act == 0 { u32::MAX } else { act + 1 };
-    renumber_list(text, "acts", act, shift_from, |n| match NUMBER_WORDS.get(n as usize) {
-        Some(w) => format!("Act {w}"),
-        None => format!("Act {n}"),
-    })
+    renumber_list(text, "acts", act, shift_from, stagewright_core::project::numbered_act)
 }
 
 /// project.yaml without episode `episode` (later episodes move up one).

@@ -229,7 +229,7 @@ const typing = EditorView.inputHandler.of((view, from, to, text) => {
 
 // ------------------------------------------------------------------ cue completion
 
-export interface CueSource {
+interface CueSource {
   /** Character cues from the project (characters.yaml + every scene). */
   cues: () => string[];
   /** Locations used in scene headings across the project. */
@@ -241,7 +241,7 @@ export interface CueSource {
 }
 
 /** Shots, angles and camera moves, written in capitals in screenplay action. */
-export const CAMERA_TERMS = [
+const CAMERA_TERMS = [
   "ANGLE ON", "CLOSE ON", "CLOSE UP", "EXTREME CLOSE UP", "MEDIUM SHOT", "WIDE SHOT", "ESTABLISHING SHOT",
   "TWO SHOT", "OVER THE SHOULDER", "POV", "REVERSE ANGLE", "INSERT", "BACK TO SCENE", "AERIAL SHOT",
   "TRACKING SHOT", "MOVING SHOT", "HANDHELD", "PAN TO", "TILT UP", "TILT DOWN", "PUSH IN", "PULL BACK",
@@ -255,7 +255,7 @@ export const CAMERA_TERMS = [
  * recognised on their own line; the others are written as forced transitions
  * ("> FADE OUT.") so they sit on the right like the rest.
  */
-export const TRANSITIONS: { label: string; apply: string }[] = [
+const TRANSITIONS: { label: string; apply: string }[] = [
   ...["CUT TO:", "SMASH CUT TO:", "MATCH CUT TO:", "JUMP CUT TO:", "DISSOLVE TO:", "WIPE TO:", "INTERCUT WITH:"].map(
     (t) => ({ label: t, apply: t.endsWith("TO:") ? t : `> ${t}` }),
   ),
@@ -591,7 +591,7 @@ const theme = EditorView.theme({
   ".cm-ySelectionInfo": { fontFamily: "var(--ui-font)", fontSize: "11px", padding: "1px 4px", borderRadius: "3px", opacity: "1" },
 });
 
-export interface SharedText {
+interface SharedText {
   text: Y.Text;
   awareness: Awareness;
   undoManager: Y.UndoManager;

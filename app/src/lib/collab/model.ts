@@ -20,7 +20,7 @@ import type { ProjectFile, ProjectView, SceneMeta } from "../api";
 
 export const MODEL_VERSION = 1;
 
-export const META_KEYS = [
+const META_KEYS = [
   "title",
   "status",
   "location",
@@ -83,7 +83,7 @@ export function pickMeta(meta: Partial<SceneMeta> | Record<string, unknown>): Sh
   return out;
 }
 
-export function same(a: unknown, b: unknown): boolean {
+function same(a: unknown, b: unknown): boolean {
   return JSON.stringify(sortKeys(a)) === JSON.stringify(sortKeys(b));
 }
 
@@ -131,7 +131,7 @@ export function mergeText(base: string, theirs: string, ours: string): string {
 
 // ------------------------------------------------------------------ reading the doc
 
-export interface SharedScene {
+interface SharedScene {
   id: string;
   act: number;
   episode: number | null;
@@ -164,20 +164,20 @@ export function readScene(doc: Y.Doc, id: string): SharedScene | null {
   };
 }
 
-export interface ActKey {
+interface ActKey {
   episode: number | null;
   act: number;
 }
 
 export const actKey = (episode: number | null | undefined, act: number) => `${episode ?? ""}:${act}`;
 
-export function parseActKey(k: string): ActKey {
+function parseActKey(k: string): ActKey {
   if (!k.includes(":")) return { episode: null, act: Number(k) }; // older docs
   const [e, a] = k.split(":");
   return { episode: e === "" ? null : Number(e), act: Number(a) };
 }
 
-export interface SharedState {
+interface SharedState {
   acts: ActKey[];
   scenes: SharedScene[];
   files: Record<string, string>;
@@ -318,7 +318,7 @@ export function baseFromDisk(snap: DiskSnapshot): Base {
 
 // ------------------------------------------------------------------ pass 1: outside edits -> doc
 
-export interface FoldReport {
+interface FoldReport {
   bodies: string[];
   metas: string[];
   added: string[];
@@ -478,7 +478,7 @@ export function planContent(snap: DiskSnapshot, want: SharedState): Op[] {
 }
 
 /** version_of("") in the Rust API (FNV-1a offset basis). */
-export const EMPTY_VERSION = "cbf29ce484222325";
+const EMPTY_VERSION = "cbf29ce484222325";
 
 /** After writing, record as base everything the disk now agrees with the doc on. */
 export function updateBase(base: Base, snap: DiskSnapshot, want: SharedState): Base {

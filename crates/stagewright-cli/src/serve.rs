@@ -70,9 +70,6 @@ fn same_origin(req: &tiny_http::Request, port: u16) -> Result<(), &'static str> 
 
 pub fn run(root: Option<PathBuf>, port: u16, static_dir: Option<PathBuf>) -> Result<(), String> {
     let server = Server::http(("127.0.0.1", port)).map_err(|e| e.to_string())?;
-    if let Some(r) = &root {
-        stagewright_api::warm_up(r);
-    }
     let mut ws = Workspace::new(root.clone());
     if let Some(r) = &root {
         dispatch(&mut ws, "project_open", serde_json::json!({ "root": r })).map_err(|e| e.to_string())?;

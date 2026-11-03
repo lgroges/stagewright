@@ -8,7 +8,8 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Group cues that are not characters.
-const GROUP_CUES: &[&str] = &["ALL"];
+/// Cues that name a group, not a character.
+pub const GROUP_CUES: &[&str] = &["ALL"];
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SceneStats {
@@ -60,6 +61,22 @@ pub fn spoken_words(line: &str) -> usize {
         }
     }
     kept.split_whitespace().count()
+}
+
+/// Everyone who speaks in a scene (group cues like ALL left out). Cheaper than
+/// `scene_stats` when only the names are wanted: no layout.
+pub fn speakers_in(scene: &Scene) -> BTreeSet<String> {
+    scene
+        .body
+        .iter()
+        .filter_map(|e| match e {
+            Element::Cue(c) => Some(c.speakers()),
+            _ => None,
+        })
+        .flatten()
+        .filter(|s| !GROUP_CUES.contains(s))
+        .map(str::to_string)
+        .collect()
 }
 
 /// Statistics for one scene. Running time: in a stage play, from spoken words;

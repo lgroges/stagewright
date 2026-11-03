@@ -67,6 +67,20 @@ pub fn replace_word(text: &str, old: &str, new: &str) -> (String, usize) {
 }
 
 /// Is `name` usable as a character cue? Upper case, no markup characters.
+/// `SAILOR 1` -> `Sailor 1`, `THE MINISTER` -> `The Minister` (a starting point to edit).
+pub fn title_case(s: &str) -> String {
+    s.split(' ')
+        .map(|w| {
+            let mut c = w.chars();
+            match c.next() {
+                Some(f) => f.to_uppercase().collect::<String>() + &c.as_str().to_lowercase(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 pub fn valid_cue_name(name: &str) -> Result<(), String> {
     let t = name.trim();
     if t.is_empty() {

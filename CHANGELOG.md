@@ -7,6 +7,8 @@ change, the cursor, is listed under 0.3.0.)
 
 ## Unreleased
 
+## 0.5.0 (2026-11-03)
+
 - **More script checks, from the BBC Writersroom format guides.**
   - Film and TV: a heading followed straight by dialogue; (V.O.) or (O.S.) written
     as a parenthetical (the fix moves it next to the name); parentheticals in

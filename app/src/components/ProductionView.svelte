@@ -40,7 +40,7 @@
     const groups: { scene: string; label: string; title: string; issues: typeof visibleIssues }[] = [];
     for (const i of visibleIssues) {
       const last = groups.at(-1);
-      if (last && last.scene === i.scene) last.issues.push(i);
+      if (last && last.scene === i.scene && last.label === i.label) last.issues.push(i);
       else groups.push({ scene: i.scene, label: i.label, title: i.title, issues: [i] });
     }
     return groups;
@@ -127,7 +127,7 @@
           {/each}
         </ul>
       {/if}
-      {#each byScene as g (g.scene)}
+      {#each byScene as g (g.scene + "|" + g.label)}
         <div class="check-scene">
           <div class="check-head"><strong>{g.label}</strong> {g.title}</div>
           <ul>
@@ -135,12 +135,15 @@
               <li class={i.severity}>
                 <button
                   class="ghost link"
-                  onclick={() => (i.scene ? app.showLine(i.scene, i.line) : (app.view = { kind: "file", name: "project.yaml" }))}
-                  title={i.scene ? "Show in the script" : "Open project.yaml"}
+                  onclick={() =>
+                    i.scene
+                      ? app.showLine(i.scene, i.line)
+                      : (app.view = i.label === "Cast" ? { kind: "cast" } : { kind: "file", name: "project.yaml" })}
+                  title={i.scene ? "Show in the script" : i.label === "Cast" ? "Open Cast" : "Open project.yaml"}
                 >
                   <span class="sev">{i.severity === "warning" ? "⚠" : "•"}</span>
                   <span class="msg">{i.message}</span>
-                  <span class="line muted">{i.scene ? (i.text.trim() ? i.text.trim() : "(blank line)") : "project.yaml"}</span>
+                  <span class="line muted">{i.scene ? (i.text.trim() ? i.text.trim() : "(blank line)") : i.label === "Cast" ? "Cast" : "project.yaml"}</span>
                 </button>
               </li>
             {/each}

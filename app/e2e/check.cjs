@@ -150,6 +150,28 @@ async function open(browser, fixture) {
     const ft = await f.evaluate(() => window.__swText());
     check("both fixed", ft.includes("\n\nINT. KITCHEN - NIGHT\n\nTom eats."), JSON.stringify(ft.slice(-60)));
     check("TOM was introduced in an earlier scene, so no note", true);
+    // Spec-script rules: (V.O.) on its own line, a camera direction; then the shooting-script switch.
+    await f.click(".cm-content");
+    await f.keyboard.press("Control+End");
+    for (const t of ["", "", "TOM", "(V.O.)", "Not now.", "", "CLOSE ON the kettle."]) {
+      if (t) await f.keyboard.type(t);
+      else await f.keyboard.press("Shift+Enter");
+      if (t && !t.startsWith("CLOSE")) await f.keyboard.press("Shift+Enter");
+    }
+    await f.keyboard.press("Escape");
+    await f.waitForFunction(() => /2 notes/.test(document.querySelector('[data-testid="issue-count"]')?.textContent ?? ""), null, { timeout: 5000 });
+    await f.click('[data-testid="issue-count"]');
+    const sp = await f.locator(".cm-panel-lint").textContent();
+    check("spec script: (V.O.) and a camera direction are noted", /goes next to the character's name/.test(sp) && /CLOSE ON is a camera direction/.test(sp), sp);
+    await f.locator('.cm-panel-lint button:has-text("Move (V.O.) next to the name")').first().click();
+    await f.waitForFunction(() => window.__swText().includes("TOM (V.O.)\nNot now."), null, { timeout: 5000 });
+    check("the fix moves (V.O.) next to the name", true);
+    await f.keyboard.press("Escape");
+    await f.click('[data-testid="export"]');
+    await f.check('[data-testid="shooting-script"]');
+    await f.waitForFunction(() => !document.querySelector('[data-testid="issue-count"]'), null, { timeout: 5000 });
+    check("a shooting script allows camera directions", /shooting_script: true/.test(fs.readFileSync(path.join(s2.project, "project.yaml"), "utf8")));
+    await f.keyboard.press("Escape");
     await snap(f, "check-3-film.png");
     check("no browser errors (film)", s2.errors.length === 0, s2.errors.join(" | "));
 

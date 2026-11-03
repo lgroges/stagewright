@@ -1063,3 +1063,100 @@ fn auto_contd_defaults_by_format_and_can_be_set() {
     let f = stagewright_core::export::fountain(&p, None);
     assert!(!f.contains("(CONT'D) (CONT'D)"), "{f}");
 }
+
+#[test]
+fn project_checks_cover_cues_title_page_and_spec_scripts() {
+    let (t, mut ws) = fixture("tv-series-sample");
+    let codes = |v: &Value| -> Vec<String> {
+        v["issues"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i["code"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert!(codes(&call(&mut ws, "check_project", json!({}))).is_empty());
+    // No contact details: a title-page note.
+    let yaml = t.path().join("project.yaml");
+    let text = fs::read_to_string(&yaml).unwrap();
+    let start = text.find("contact:").unwrap();
+    let end = text[start..].find("sample@example.com\n").unwrap() + start + "sample@example.com\n".len();
+    fs::write(&yaml, format!("{}{}", &text[..start], &text[end..])).unwrap();
+    let v = call(&mut ws, "check_project", json!({}));
+    assert_eq!(codes(&v), vec!["title-page"]);
+    assert!(v["issues"][0]["message"]
+        .as_str()
+        .unwrap()
+        .contains("no contact details"));
+    // A full-name cue: a note on the cast, not on a scene line.
+    let chars = t.path().join("characters.yaml");
+    let cast = fs::read_to_string(&chars).unwrap();
+    fs::write(
+        &chars,
+        format!("{cast}- {{id: walt, cue: WALTER PRICE, name: Walter Price}}\n"),
+    )
+    .unwrap();
+    let v = call(&mut ws, "check_project", json!({}));
+    let note = v["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["code"] == "cue-full-name")
+        .expect("a cue note");
+    assert_eq!(
+        (note["scene"].as_str(), note["label"].as_str()),
+        (Some(""), Some("Cast"))
+    );
+    // Shooting script: CUT TO: and camera directions are fine.
+    let v = call(&mut ws, "set_option", json!({"name": "shooting_script", "value": true}));
+    assert_eq!(v["shooting_script"], true);
+    assert!(fs::read_to_string(&yaml).unwrap().contains("shooting_script: true\n"));
+    let v = call(&mut ws, "set_option", json!({"name": "shooting_script", "value": null}));
+    assert_eq!(v["shooting_script"], false);
+}
+
+#[test]
+fn exports_open_and_close_like_the_guides() {
+    use stagewright_core::export;
+    let text = |p: &stagewright_core::Project| -> Vec<String> {
+        export::pages(p, None)
+            .1
+            .iter()
+            .flatten()
+            .map(|l| l.text.clone())
+            .collect()
+    };
+    let (t, _ws) = fixture("film-sample");
+    let p = stagewright_core::Project::load(t.path()).unwrap();
+    let lines = text(&p);
+    // Title page: contact at the foot, no draft on a spec script.
+    let title: Vec<&String> = lines.iter().take_while(|l| *l != "FADE IN:").collect();
+    assert!(title.contains(&&"sample@example.com".to_string()));
+    assert!(!lines.contains(&"First draft".to_string()));
+    let tail: Vec<&str> = lines
+        .iter()
+        .rev()
+        .filter(|l| !l.is_empty())
+        .take(2)
+        .map(|s| s.as_str())
+        .collect();
+    assert_eq!(tail, vec!["THE END", "FADE OUT."]);
+    let f = export::fountain(&p, None);
+    assert!(
+        f.contains("Contact:\n    Stagewright sample\n    sample@example.com\n"),
+        "{f}"
+    );
+    assert!(!f.contains("Draft date"));
+    // A shooting script prints the draft.
+    let mut shooting = stagewright_core::Project::load(t.path()).unwrap();
+    shooting.meta.shooting_script = true;
+    assert!(text(&shooting).contains(&"First draft".to_string()));
+    // TV: every act opens with FADE IN: and closes with FADE OUT.; the last ends the show.
+    let (t, _ws) = fixture("tv-series-sample");
+    let p = stagewright_core::Project::load(t.path()).unwrap();
+    let lines = text(&p);
+    let n = |s: &str| lines.iter().filter(|l| l.as_str() == s).count();
+    assert_eq!(n("FADE IN:"), n("FADE OUT."));
+    assert!(n("FADE IN:") >= 3);
+    assert!(lines.iter().any(|l| l == "END OF SHOW"));
+}

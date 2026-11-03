@@ -46,6 +46,35 @@ fn selection(p: &Project, episode: Option<u32>) -> Vec<(ActRef, Vec<&SceneFile>)
         .collect()
 }
 
+/// Whether a scene already opens (or closes) with a transition, say FADE IN:.
+fn scene_says(sf: &SceneFile, last: bool, word: &str) -> bool {
+    let text_of = |e: &Element| match e {
+        Element::Transition { text, .. } | Element::Direction { text, .. } | Element::Centered(text) => {
+            Some(text.clone())
+        }
+        _ => None,
+    };
+    let mut els = sf.scene.body.iter().filter(|e| !matches!(e, Element::Blank));
+    let el = if last {
+        // Past a closing THE END the writer may have typed.
+        els.rev()
+            .find(|e| text_of(e).is_none_or(|t| !crate::scene::is_end_line(&t) || word == "THE END"))
+    } else {
+        els.next()
+    };
+    let Some(text) = el.and_then(text_of) else { return false };
+    text.trim_start_matches('>').trim().to_uppercase().starts_with(word)
+}
+
+/// FADE IN: at the left, as the guides set it.
+fn fade_in(prof: &Profile) -> Block {
+    text_block("FADE IN:", &prof.action, 0)
+}
+
+fn fade_out(prof: &Profile) -> Block {
+    text_block("FADE OUT.", &prof.transition, 1)
+}
+
 fn script_blocks(p: &Project, prof: &Profile, episode: Option<u32>) -> Vec<Block> {
     let f = p.meta.format;
     let mut out: Vec<Block> = Vec::new();
@@ -58,7 +87,11 @@ fn script_blocks(p: &Project, prof: &Profile, episode: Option<u32>) -> Vec<Block
         .collect::<std::collections::BTreeSet<_>>()
         .len()
         > 1;
-    for (aref, scenes) in &acts {
+    for (ai, (aref, scenes)) in acts.iter().enumerate() {
+        // The last act of an episode (or of the script) ends the show.
+        let ends_show = acts.get(ai + 1).is_none_or(|(next, _)| next.episode != aref.episode);
+        // Film: FADE IN: once at the start; TV: at the start of every act.
+        let opens = (f == Format::Film && ai == 0) || f.is_tv();
         if last_episode != Some(aref.episode) {
             if let (Some(e), None) = (aref.episode, episode) {
                 // Whole series in one file: a title card per episode.
@@ -77,8 +110,9 @@ fn script_blocks(p: &Project, prof: &Profile, episode: Option<u32>) -> Vec<Block
                 !out.is_empty() && f.is_tv() || out.len() > 1,
             ));
         }
-        for sf in scenes {
+        for (si, sf) in scenes.iter().enumerate() {
             let mut blocks = scene_blocks(&sf.scene, prof);
+            let fade_in_here = opens && si == 0 && !scene_says(sf, false, "FADE IN");
             if f == Format::TvMulti {
                 // Every scene on a new page, lettered, with its cast under the heading.
                 out.push(header_block(&format!("SCENE {}", scene_letter(letter)), prof, true));
@@ -106,25 +140,68 @@ fn script_blocks(p: &Project, prof: &Profile, episode: Option<u32>) -> Vec<Block
                     out.push(b);
                 }
             }
+            if fade_in_here {
+                let mut b = fade_in(prof);
+                b.space_before = if out.is_empty() { 0 } else { 2 };
+                out.push(b);
+            }
             if let Some(first) = blocks.first_mut() {
-                first.space_before = if out.is_empty() { 0 } else { 2 };
+                first.space_before = if fade_in_here {
+                    1
+                } else if out.is_empty() {
+                    0
+                } else {
+                    2
+                };
             }
             out.extend(blocks);
         }
+        let closed = scenes.last().is_some_and(|sf| scene_says(sf, true, "FADE OUT"));
         if f.is_tv() {
-            let mut b = text_block(&format!("END OF {heading}"), &centered_slot(prof), 2);
+            if !closed {
+                out.push(fade_out(prof));
+            }
+            let end = if ends_show {
+                "END OF SHOW".to_string()
+            } else {
+                format!("END OF {heading}")
+            };
+            let mut b = text_block(&end, &centered_slot(prof), 2);
             b.lines.iter_mut().for_each(|l| l.underline = true);
             out.push(b);
+        } else if f == Format::Film && ai + 1 == acts.len() && !closed {
+            out.push(fade_out(prof));
         }
     }
-    if f == Format::Stage || f == Format::Film {
-        out.push(text_block(
-            if f == Format::Stage { "THE END" } else { "FADE OUT." },
-            &centered_slot(prof),
-            2,
-        ));
+    let typed_end = acts
+        .last()
+        .and_then(|(_, s)| s.last())
+        .is_some_and(|sf| scene_says(sf, true, "THE END"));
+    if (f == Format::Stage || f == Format::Film) && !typed_end {
+        out.push(text_block("THE END", &centered_slot(prof), 2));
     }
     out
+}
+
+/// The contact lines for the title page.
+fn contact_lines(p: &Project) -> Vec<String> {
+    p.meta
+        .contact
+        .as_deref()
+        .unwrap_or("")
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Spec film and TV scripts leave the draft off the title page.
+fn shows_draft(p: &Project) -> Option<&String> {
+    p.meta
+        .draft
+        .as_ref()
+        .filter(|_| !p.meta.format.is_screen() || p.meta.shooting_script)
 }
 
 fn add_centered(page: &mut Page, prof: &Profile, text: &str, underline: bool) {
@@ -156,16 +233,26 @@ fn title_page(p: &Project, prof: &Profile, episode: Option<u32>) -> Page {
     );
     page.push(Line::blank());
     add_centered(&mut page, prof, &p.meta.authors.join(" & "), false);
-    if let Some(d) = &p.meta.draft {
-        while page.len() < prof.lines_per_page - 2 {
+    // At the foot: the draft on the right, then the contact details on the left.
+    let contact = contact_lines(p);
+    let draft = shows_draft(p);
+    let foot = contact.len() + usize::from(draft.is_some());
+    if foot > 0 {
+        while page.len() + foot < prof.lines_per_page {
             page.push(Line::blank());
         }
-        page.push(Line {
-            text: d.clone(),
-            col: 0,
+        let line = |text: &str, col: usize| Line {
+            text: text.to_string(),
+            col,
             style: crate::layout::Style::Plain,
             underline: false,
-        });
+        };
+        if let Some(d) = draft {
+            page.push(line(d, prof.cols.saturating_sub(d.chars().count())));
+        }
+        for c in &contact {
+            page.push(line(c, 0));
+        }
     }
     page
 }
@@ -211,8 +298,15 @@ pub fn fountain(p: &Project, episode: Option<u32>) -> String {
     }
     out.push_str("Credit: Written by\n");
     out.push_str(&format!("Author: {}\n", p.meta.authors.join(" & ")));
-    if let Some(d) = &p.meta.draft {
+    if let Some(d) = shows_draft(p) {
         out.push_str(&format!("Draft date: {d}\n"));
+    }
+    let contact = contact_lines(p);
+    if !contact.is_empty() {
+        out.push_str("Contact:\n");
+        for c in contact {
+            out.push_str(&format!("    {c}\n"));
+        }
     }
     out.push('\n');
     for (aref, scenes) in selection(p, episode) {

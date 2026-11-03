@@ -74,8 +74,155 @@ pub const CHECKS: &[(&str, &str)] = &[
     ("action-run-on", "Action lines running together without a blank line"),
     ("heading-description", "Description inside a scene heading"),
     ("contd-typed", "(CONT'D) typed by hand, or spelt (CONT.)"),
-    ("long-action", "An action paragraph longer than 4 lines"),
+    ("long-action", "An action paragraph longer than 5 lines"),
+    ("heading-then-dialogue", "A scene heading followed straight by dialogue"),
+    (
+        "cue-extension",
+        "(V.O.) or (O.S.) as a parenthetical, or written (O.O.V.)",
+    ),
+    (
+        "parenthetical-caps",
+        "A parenthetical in capitals (film and single-camera TV)",
+    ),
+    ("transition", "CUT TO: in a spec script, or FADE OUT. part-way through"),
+    ("camera-spec", "Camera directions in a spec script"),
+    ("novelistic", "Action describing thoughts or feelings we can't see"),
+    ("cue-full-name", "A cue using a character's full name"),
+    ("cue-title", "A cue with a title written out (MISTER, DOCTOR)"),
+    ("cue-variant", "Two cues that look like the same character"),
     ("title-page", "Title page details missing"),
+];
+
+/// Camera and technical directions a spec script leaves to the director.
+/// (MONTAGE, SERIES OF SHOTS, INTERCUT and FLASHBACK are storytelling, so allowed.)
+pub const CAMERA_DIRECTIONS: &[&str] = &[
+    "ANGLE ON",
+    "CLOSE ON",
+    "CLOSE UP",
+    "CLOSE-UP",
+    "EXTREME CLOSE UP",
+    "EXTREME CLOSE-UP",
+    "ECU",
+    "MCU",
+    "MEDIUM SHOT",
+    "WIDE SHOT",
+    "ESTABLISHING SHOT",
+    "TWO SHOT",
+    "OVER THE SHOULDER",
+    "POV",
+    "REVERSE ANGLE",
+    "INSERT",
+    "BACK TO SCENE",
+    "AERIAL SHOT",
+    "TRACKING SHOT",
+    "MOVING SHOT",
+    "HANDHELD",
+    "PAN TO",
+    "PANS TO",
+    "TILT UP",
+    "TILT DOWN",
+    "PUSH IN",
+    "PULL BACK",
+    "DOLLY IN",
+    "DOLLY OUT",
+    "ZOOM IN",
+    "ZOOM OUT",
+    "CRANE UP",
+    "CRANE DOWN",
+    "RACK FOCUS",
+    "SLOW MOTION",
+    "FREEZE FRAME",
+    "SPLIT SCREEN",
+];
+
+/// Words for what's inside a character's head, which the camera can't show.
+const NOVELISTIC: &[&str] = &[
+    "thinks",
+    "thinking about",
+    "remembers",
+    "remembering",
+    "recalls",
+    "realises",
+    "realizes",
+    "realising",
+    "realizing",
+    "wonders",
+    "wondering",
+    "wishes",
+    "knows",
+    "decides",
+    "can't help but",
+    "deep down",
+];
+
+/// Extensions sometimes written as a parenthetical, and how they're written.
+const EXTENSIONS: &[(&str, &str)] = &[
+    ("V.O.", "V.O."),
+    ("VO", "V.O."),
+    ("V/O", "V.O."),
+    ("VOICE OVER", "V.O."),
+    ("VOICEOVER", "V.O."),
+    ("VOICE-OVER", "V.O."),
+    ("O.S.", "O.S."),
+    ("OS", "O.S."),
+    ("OFF", "O.S."),
+    ("OFF SCREEN", "O.S."),
+    ("OFF-SCREEN", "O.S."),
+    ("OFFSCREEN", "O.S."),
+    ("O.C.", "O.C."),
+    ("O.O.V.", "O.O.V."),
+    ("O.O.V", "O.O.V."),
+    ("OOV", "O.O.V."),
+];
+
+/// Titles written out in a cue, and their abbreviations (British style, no full stop).
+const TITLES: &[(&str, &str)] = &[
+    ("MISTER", "MR"),
+    ("MISSUS", "MRS"),
+    ("MISSES", "MRS"),
+    ("DOCTOR", "DR"),
+    ("PROFESSOR", "PROF"),
+];
+
+/// Words that qualify a cue rather than name someone: YOUNG NELL, OLD MAN.
+const DESCRIPTORS: &[&str] = &[
+    "YOUNG",
+    "YOUNGER",
+    "OLD",
+    "OLDER",
+    "LITTLE",
+    "BIG",
+    "THE",
+    "A",
+    "AN",
+    "MR",
+    "MRS",
+    "MS",
+    "MISS",
+    "DR",
+    "PROF",
+    "SIR",
+    "LADY",
+    "LORD",
+    "DAME",
+    "FATHER",
+    "MOTHER",
+    "SISTER",
+    "BROTHER",
+    "AUNT",
+    "UNCLE",
+    "CAPTAIN",
+    "SERGEANT",
+    "INSPECTOR",
+    "DETECTIVE",
+    "OFFICER",
+    "KING",
+    "QUEEN",
+    "PRINCE",
+    "PRINCESS",
+    "SAINT",
+    "ST",
+    "REVEREND",
 ];
 
 /// A character as the action may mention them.
@@ -172,6 +319,124 @@ pub struct Context {
     pub people: Vec<Person>,
     /// (CONT'D) is added automatically in this project.
     pub auto_contd: bool,
+    /// A shooting script: camera directions and CUT TO: are expected.
+    pub shooting: bool,
+    /// FADE OUT. may close this scene: the last scene of a film, or of a TV act.
+    pub fade_out_here: bool,
+}
+
+/// A note about the cast as a whole, not one line of a scene.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CastNote {
+    pub code: &'static str,
+    pub cue: String,
+    pub message: String,
+}
+
+fn words(cue: &str) -> Vec<&str> {
+    cue.split_whitespace().collect()
+}
+
+/// Notes on the cues themselves: full names, titles written out, and two
+/// cues for what looks like one character.
+pub fn check_cues(ctx: &Context) -> Vec<CastNote> {
+    let mut out = Vec::new();
+    let plain = |c: &str| !c.contains(['&', ',', '#', '/']) && !c.chars().any(|ch| ch.is_ascii_digit());
+    // Full names: a cast entry whose cue is its whole (several-word) name.
+    for p in &ctx.people {
+        let w = words(&p.cue);
+        let full = p.name.as_ref().is_some_and(|n| n.to_uppercase() == p.cue);
+        if w.len() < 2 || !full || !plain(&p.cue) || DESCRIPTORS.contains(&w[0]) {
+            continue;
+        }
+        // Suggest a name nobody else's cue uses: the first, the last, then the middle ones.
+        let mut options: Vec<&str> = vec![w[0], w[w.len() - 1]];
+        options.extend(&w[1..w.len() - 1]);
+        // A first name another cue starts with is taken; a shared surname is
+        // free if the other character can go by their own first name.
+        let others: Vec<&str> = ctx
+            .people
+            .iter()
+            .map(|q| q.cue.as_str())
+            .filter(|q| *q != p.cue)
+            .collect();
+        let first_taken = |o: &str, except: &str| {
+            others
+                .iter()
+                .chain(std::iter::once(&p.cue.as_str()))
+                .any(|q| *q != except && (words(q).first() == Some(&o) || *q == o))
+        };
+        let free: Vec<&str> = options
+            .into_iter()
+            .filter(|o| {
+                !first_taken(o, &p.cue)
+                    && others
+                        .iter()
+                        .filter(|q| words(q).contains(o))
+                        .all(|q| !first_taken(words(q)[0], q))
+            })
+            .collect();
+        let suggestion = match free.as_slice() {
+            [] => String::new(),
+            [one] => format!(" ({one})"),
+            [a, b, ..] => format!(" ({a} or {b})"),
+        };
+        out.push(CastNote {
+            code: "cue-full-name",
+            cue: p.cue.clone(),
+            message: format!(
+                "{}: cues usually use just the first or last name{suggestion}, with the full name in capitals where they're introduced. Rename it in Cast.",
+                p.cue
+            ),
+        });
+    }
+    // Titles written out: MISTER JONES -> MR JONES.
+    let mut cues: Vec<&String> = ctx.known.iter().filter(|c| !GROUP_CUES.contains(&c.as_str())).collect();
+    cues.sort();
+    for c in &cues {
+        let w = words(c);
+        if w.len() < 2 {
+            continue;
+        }
+        if let Some((long, short)) = TITLES.iter().find(|(t, _)| w[..w.len() - 1].contains(t)) {
+            let fixed = replace_word(c, long, short).0;
+            out.push(CastNote {
+                code: "cue-title",
+                cue: (*c).clone(),
+                message: format!("{c}: titles are abbreviated in cues ({fixed}). Rename it in Cast."),
+            });
+        }
+    }
+    // One character, two cues: DEE and JOHN DEE. Both in the cast list means
+    // the writer has said they're different people.
+    for a in &cues {
+        let longer: Vec<&str> = cues
+            .iter()
+            .filter(|b| {
+                let (wa, wb) = (words(a), words(b));
+                let inside = wa.len() < wb.len() && wa.iter().all(|x| wb.contains(x));
+                let extra_descriptive = wb.iter().filter(|x| !wa.contains(x)).all(|x| DESCRIPTORS.contains(x));
+                plain(a)
+                    && plain(b)
+                    && inside
+                    && !extra_descriptive
+                    && !(ctx.cast.contains(*a) && ctx.cast.contains(**b))
+            })
+            .map(|b| b.as_str())
+            .collect();
+        if !longer.is_empty() {
+            out.push(CastNote {
+                code: "cue-variant",
+                cue: (*a).clone(),
+                message: format!(
+                    "{a} looks like the same character as {}: keep to one cue throughout.",
+                    longer.join(" or ")
+                ),
+            });
+        }
+    }
+    out.retain(|n| !ctx.off.contains(n.code));
+    out
 }
 
 const GROUP_CUES: &[&str] = &["ALL"];
@@ -503,6 +768,7 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
                         let mut forms: Vec<(String, bool)> = vec![(p.cue.clone(), true)];
                         if let Some(n) = &p.name {
                             forms.push((n.clone(), false));
+                            forms.push((n.to_uppercase(), false));
                         }
                         if let Some(s) = &p.short {
                             forms.push((s.clone(), true));
@@ -529,6 +795,11 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
                         if !ctx.introduced.contains(&p.cue) {
                             ctx.introduced.insert(p.cue.clone());
                             if !caps {
+                                let full = p
+                                    .name
+                                    .as_ref()
+                                    .map(|n| n.to_uppercase())
+                                    .unwrap_or_else(|| p.cue.clone());
                                 out.push(issue(
                                     "intro-caps",
                                     Severity::Info,
@@ -536,8 +807,8 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
                                     span,
                                     format!("First appearance of {}: screenplays introduce a character with their full name in capitals.", p.cue),
                                     fix(
-                                        format!("Write {}", p.cue),
-                                        vec![Edit::Replace { line: i, text: format!("{before}{}{after}", p.cue) }],
+                                        format!("Write {full}"),
+                                        vec![Edit::Replace { line: i, text: format!("{before}{full}{after}") }],
                                     ),
                                 ));
                             }
@@ -590,13 +861,54 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
                             _ => 0,
                         })
                         .sum();
-                    if printed > 4 {
+                    if printed > 5 {
                         out.push(issue(
                             "long-action",
                             Severity::Info,
                             i,
                             (0, 0),
-                            format!("This action paragraph prints at {printed} lines; screenplays usually keep action to 3 or 4 lines at a time, so it reads quickly."),
+                            format!("This action paragraph prints at {printed} lines. Keep each paragraph to four or five lines, one beat of action each: split it where the focus shifts."),
+                            None,
+                        ));
+                    }
+                }
+                if !forced {
+                    fade_out(i, &t.trim().to_uppercase(), text, &els, ctx, &mut out);
+                }
+                let off = usize::from(*forced);
+                let chars: Vec<char> = t.chars().collect();
+                // Camera directions, in capitals, in a spec script.
+                if screen && !ctx.shooting {
+                    let mut seen: Vec<(usize, usize)> = Vec::new();
+                    let mut terms: Vec<&str> = CAMERA_DIRECTIONS.to_vec();
+                    terms.sort_by_key(|t| std::cmp::Reverse(t.len()));
+                    for term in terms {
+                        for (a, b, _) in occurrences(&chars, term, false) {
+                            if seen.iter().any(|(x, y)| a < *y && *x < b) {
+                                continue;
+                            }
+                            seen.push((a, b));
+                            out.push(issue(
+                                "camera-spec",
+                                Severity::Info,
+                                i,
+                                (a + off, b + off),
+                                format!("{term} is a camera direction: a spec script leaves the shots to the director. Describe what we see instead (or mark this a shooting script)."),
+                                None,
+                            ));
+                        }
+                    }
+                }
+                // What's in a character's head can't be filmed or staged.
+                for w in NOVELISTIC {
+                    for (a, b, _) in occurrences(&chars, w, true) {
+                        let written: String = chars[a..b].iter().collect();
+                        out.push(issue(
+                            "novelistic",
+                            Severity::Info,
+                            i,
+                            (a + off, b + off),
+                            format!("\"{written}\" describes what's going on inside a character; action should only show what the audience can see and hear."),
                             None,
                         ));
                     }
@@ -674,6 +986,21 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
                         (0, 0),
                         "A scene heading needs a blank line after it; other screenwriting apps won't read it as a heading without one.".into(),
                         fix("Add a blank line after it", vec![Edit::InsertAfter { line: i, text: String::new() }]),
+                    ));
+                }
+                if screen
+                    && matches!(
+                        els[i + 1..].iter().find(|e| !matches!(e, Element::Blank)),
+                        Some(Element::Cue(_))
+                    )
+                {
+                    out.push(issue(
+                        "heading-then-dialogue",
+                        Severity::Info,
+                        i,
+                        (0, 0),
+                        "Follow a scene heading with a line of action, to set the scene before anyone speaks.".into(),
+                        None,
                     ));
                 }
                 // Description in the heading: "- MORNING. SPRING. THE SUN SHINES."
@@ -789,11 +1116,100 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
                     }
                 }
             }
-            Element::Blank
-            | Element::Parenthetical(_)
-            | Element::Transition { .. }
-            | Element::Centered(_)
-            | Element::PageBreak(_) => {}
+            Element::Parenthetical(t) => {
+                let inner = t.trim().trim_start_matches('(').trim_end_matches(')').trim();
+                let upper = inner.to_uppercase();
+                let as_extension = EXTENSIONS.iter().find(|(w, _)| *w == upper).map(|(_, e)| *e);
+                let cue_line = (i > 0 && matches!(els[i - 1], Element::Cue(_))).then(|| i - 1);
+                // Stage plays write "(off)" under the name, so this is a screen rule.
+                if let (true, Some(ext), Some(c)) = (screen, as_extension, cue_line) {
+                    let ext = if ext == "O.O.V." && ctx.format != Format::TvMulti {
+                        "O.S."
+                    } else {
+                        ext
+                    };
+                    let cue = lines.get(c).copied().unwrap_or("").trim_end();
+                    let (name, dual) = match cue.strip_suffix('^') {
+                        Some(n) => (n.trim_end(), " ^"),
+                        None => (cue, ""),
+                    };
+                    out.push(issue(
+                        "cue-extension",
+                        Severity::Info,
+                        i,
+                        (0, 0),
+                        format!(
+                            "({ext}) is a technical note, so it goes next to the character's name, not on its own line."
+                        ),
+                        fix(
+                            format!("Move ({ext}) next to the name"),
+                            vec![
+                                Edit::Replace {
+                                    line: c,
+                                    text: format!("{name} ({ext}){dual}"),
+                                },
+                                Edit::Delete { line: i },
+                            ],
+                        ),
+                    ));
+                } else if screen
+                    && ctx.format != Format::TvMulti
+                    && inner.chars().filter(|c| c.is_alphabetic()).count() >= 2
+                    && !inner.chars().any(|c| c.is_lowercase())
+                {
+                    // Keep character names in capitals: (TO NELL) -> (to NELL).
+                    let names: BTreeSet<&str> = ctx.known.iter().flat_map(|k| k.split_whitespace()).collect();
+                    let lowered: String = t
+                        .split(' ')
+                        .map(|w| {
+                            let bare = w.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'');
+                            if names.contains(bare) {
+                                w.to_string()
+                            } else {
+                                w.to_lowercase()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    if lowered != *t {
+                        out.push(issue(
+                            "parenthetical-caps",
+                            Severity::Info,
+                            i,
+                            (0, 0),
+                            "Screenplay parentheticals are written in lower case.".into(),
+                            fix(
+                                "Write it in lower case",
+                                vec![Edit::Replace {
+                                    line: i,
+                                    text: text.replacen(t.as_str(), &lowered, 1),
+                                }],
+                            ),
+                        ));
+                    }
+                }
+            }
+            Element::Transition { text: t, .. } => {
+                let upper = t.trim().to_uppercase();
+                let film_or_single = matches!(ctx.format, Format::Film | Format::TvSingle);
+                if upper == "CUT TO:" && film_or_single && !ctx.shooting {
+                    let mut edits = vec![Edit::Delete { line: i }];
+                    if i > 0 && blank(i - 1) && blank(i + 1) {
+                        edits.insert(0, Edit::Delete { line: i - 1 });
+                    }
+                    out.push(issue(
+                        "transition",
+                        Severity::Info,
+                        i,
+                        (0, 0),
+                        "Every scene cuts to the next unless you say otherwise, so a spec script leaves out CUT TO:."
+                            .into(),
+                        fix("Remove CUT TO:", edits),
+                    ));
+                }
+                fade_out(i, &upper, text, &els, ctx, &mut out);
+            }
+            Element::Blank | Element::Centered(_) | Element::PageBreak(_) => {}
         }
     }
     if let Some(start) = open_song {
@@ -820,6 +1236,45 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
     out.retain(|i| !ctx.off.contains(i.code));
     out.sort_by_key(|i| (i.line, i.from));
     out
+}
+
+/// FADE OUT. ends a film or a TV act; between scenes it's FADE TO:.
+fn fade_out(i: usize, upper: &str, line: &str, els: &[Element], ctx: &Context, out: &mut Vec<Issue>) {
+    let upper = upper.trim_start_matches('>').trim();
+    if !ctx.format.is_screen() || !(upper == "FADE OUT." || upper == "FADE OUT") {
+        return;
+    }
+    // Anything after it but blank lines and a closing THE END / END OF ACT ONE.
+    let more_after = els[i + 1..].iter().any(|e| match e {
+        Element::Blank => false,
+        Element::Direction { text, .. } | Element::Transition { text, .. } | Element::Centered(text) => {
+            !crate::scene::is_end_line(text)
+        }
+        _ => true,
+    });
+    if !more_after && ctx.fade_out_here {
+        return;
+    }
+    let at = line.to_uppercase().find("FADE OUT").unwrap_or(0);
+    let len = if line[at..].to_uppercase().starts_with("FADE OUT.") {
+        9
+    } else {
+        8
+    };
+    let fixed = format!("{}FADE TO:{}", &line[..at], &line[at + len..]);
+    let where_ = if ctx.format == Format::Film {
+        "the film"
+    } else {
+        "an act"
+    };
+    out.push(issue(
+        "transition",
+        Severity::Info,
+        i,
+        (0, 0),
+        format!("FADE OUT. only comes at the end of {where_}; between scenes, write FADE TO:."),
+        fix("Write FADE TO:", vec![Edit::Replace { line: i, text: fixed }]),
+    ));
 }
 
 fn song_unclosed(start: usize, last_lyric: Option<usize>, lines: &[&str]) -> Issue {
@@ -1234,14 +1689,207 @@ mod tests {
                 text: "MINISTER (CONT'D)".into()
             }]
         );
-        let long = format!("INT. CHURCH - DAY\n\n{}", "Words go here. ".repeat(20));
+        // Five printed lines is fine; six is too many.
+        let five = format!("INT. CHURCH - DAY\n\n{}", "Words go here. ".repeat(20));
+        assert!(!run(&five, &mut people_ctx()).iter().any(|i| i.code == "long-action"));
+        let long = format!("INT. CHURCH - DAY\n\n{}", "Words go here. ".repeat(24));
         let i = run(&long, &mut people_ctx())
             .into_iter()
             .find(|i| i.code == "long-action")
             .unwrap();
         assert_eq!(
             i.message,
-            "This action paragraph prints at 5 lines; screenplays usually keep action to 3 or 4 lines at a time, so it reads quickly."
+            "This action paragraph prints at 6 lines. Keep each paragraph to four or five lines, one beat of action each: split it where the focus shifts."
+        );
+    }
+
+    fn only<'a>(issues: &'a [Issue], code: &str) -> Vec<&'a Issue> {
+        issues.iter().filter(|i| i.code == code).collect()
+    }
+
+    #[test]
+    fn headings_lead_into_action() {
+        let mut c = ctx(Format::Film);
+        let got = check_scene("INT. KITCHEN - DAY\n\nNELL\nHi.", &SceneMeta::default(), &mut c);
+        assert_eq!(only(&got, "heading-then-dialogue").len(), 1);
+        let got = check_scene(
+            "INT. KITCHEN - DAY\n\nRain.\n\nNELL\nHi.",
+            &SceneMeta::default(),
+            &mut c,
+        );
+        assert!(only(&got, "heading-then-dialogue").is_empty());
+    }
+
+    #[test]
+    fn extensions_go_next_to_the_name() {
+        let mut c = ctx(Format::Film);
+        let got = check_scene(
+            "INT. HALL - DAY\n\nRain.\n\nNELL\n(V.O.)\nHi.",
+            &SceneMeta::default(),
+            &mut c,
+        );
+        let i = only(&got, "cue-extension")[0];
+        assert_eq!(
+            i.fix.as_ref().unwrap().edits,
+            vec![
+                Edit::Replace {
+                    line: 4,
+                    text: "NELL (V.O.)".into()
+                },
+                Edit::Delete { line: 5 }
+            ]
+        );
+        // Dual dialogue keeps its ^ last; (O.O.V.) becomes (O.S.) in a screenplay.
+        let got = check_scene(
+            "INT. HALL - DAY\n\nRain.\n\nTOBIAS\nYes.\n\nNELL ^\n(oov)\nNo.",
+            &SceneMeta::default(),
+            &mut c,
+        );
+        assert_eq!(
+            only(&got, "cue-extension")[0].fix.as_ref().unwrap().edits[0],
+            Edit::Replace {
+                line: 7,
+                text: "NELL (O.S.) ^".into()
+            }
+        );
+        // An ordinary parenthetical is left alone.
+        let got = check_scene(
+            "INT. HALL - DAY\n\nRain.\n\nNELL\n(quietly)\nHi.",
+            &SceneMeta::default(),
+            &mut c,
+        );
+        assert!(got.is_empty(), "{got:?}");
+    }
+
+    #[test]
+    fn parentheticals_in_lower_case() {
+        let mut c = ctx(Format::Film);
+        let got = check_scene(
+            "INT. HALL - DAY\n\nRain.\n\nNELL\n(TO TOBIAS)\nHi.",
+            &SceneMeta::default(),
+            &mut c,
+        );
+        assert_eq!(
+            only(&got, "parenthetical-caps")[0].fix.as_ref().unwrap().edits,
+            vec![Edit::Replace {
+                line: 5,
+                text: "(to TOBIAS)".into()
+            }]
+        );
+        // Multi-camera and stage scripts write them in capitals.
+        let mut c = ctx(Format::TvMulti);
+        let got = check_scene(
+            "INT. HALL - DAY\n\nRAIN.\n\nNELL\n(TO TOBIAS)\nHi.",
+            &SceneMeta::default(),
+            &mut c,
+        );
+        assert!(only(&got, "parenthetical-caps").is_empty());
+    }
+
+    #[test]
+    fn transitions_in_a_spec_script() {
+        let mut c = ctx(Format::Film);
+        let body = "INT. HALL - DAY\n\nRain.\n\nCUT TO:\n";
+        let got = check_scene(body, &SceneMeta::default(), &mut c);
+        assert_eq!(
+            only(&got, "transition")[0].fix.as_ref().unwrap().edits,
+            vec![Edit::Delete { line: 3 }, Edit::Delete { line: 4 }]
+        );
+        c.shooting = true;
+        assert!(only(&check_scene(body, &SceneMeta::default(), &mut c), "transition").is_empty());
+        // FADE OUT. part-way through is FADE TO:; at the very end it's fine.
+        let body = "INT. HALL - DAY\n\nRain.\n\n> FADE OUT.";
+        let got = check_scene(body, &SceneMeta::default(), &mut c);
+        assert_eq!(
+            only(&got, "transition")[0].fix.as_ref().unwrap().edits,
+            vec![Edit::Replace {
+                line: 4,
+                text: "> FADE TO:".into()
+            }]
+        );
+        c.fade_out_here = true;
+        assert!(only(&check_scene(body, &SceneMeta::default(), &mut c), "transition").is_empty());
+        let body = "INT. HALL - DAY\n\nRain.\n\n> FADE OUT.\n\nINT. ROOM - DAY\n\nSun.";
+        assert_eq!(
+            only(&check_scene(body, &SceneMeta::default(), &mut c), "transition").len(),
+            1
+        );
+    }
+
+    #[test]
+    fn camera_directions_and_thoughts() {
+        let mut c = ctx(Format::Film);
+        let body = "INT. HALL - DAY\n\nCLOSE ON the letter. Nell remembers her father.\n\nA pan of milk boils over.";
+        let got = check_scene(body, &SceneMeta::default(), &mut c);
+        let cam = only(&got, "camera-spec");
+        assert_eq!((cam.len(), cam[0].from, cam[0].to), (1, 0, 8));
+        let nov = only(&got, "novelistic");
+        assert_eq!((nov.len(), nov[0].from, nov[0].to), (1, 26, 35));
+        c.shooting = true;
+        assert!(only(&check_scene(body, &SceneMeta::default(), &mut c), "camera-spec").is_empty());
+    }
+
+    #[test]
+    fn cue_names() {
+        let mut c = people_ctx();
+        for (cue, name) in [
+            ("JOHN DEE", "John Dee"),
+            ("JOHN FRANCIS WESTON", "John Francis Weston"),
+            ("YOUNG NELL", "Young Nell"),
+        ] {
+            c.cast.insert(cue.into());
+            c.known.insert(cue.into());
+            c.people.push(Person {
+                cue: cue.into(),
+                name: Some(name.into()),
+                short: None,
+            });
+        }
+        for k in ["DEE", "MISTER JONES", "NELL"] {
+            c.known.insert(k.into());
+        }
+        let notes = check_cues(&c);
+        let msg = |code: &str, cue: &str| {
+            notes
+                .iter()
+                .find(|n| n.code == code && n.cue == cue)
+                .map(|n| n.message.clone())
+        };
+        // Suggestions avoid names another cue already uses.
+        assert!(msg("cue-full-name", "JOANNA WESTON").unwrap().contains("(JOANNA)"));
+        assert!(msg("cue-full-name", "JOHN DEE").unwrap().contains("(DEE)"));
+        assert!(
+            msg("cue-full-name", "JOHN FRANCIS WESTON")
+                .unwrap()
+                .contains("(WESTON or FRANCIS)")
+        );
+        assert!(msg("cue-full-name", "YOUNG NELL").is_none());
+        assert!(msg("cue-full-name", "MINISTER").is_none());
+        assert!(msg("cue-title", "MISTER JONES").unwrap().contains("(MR JONES)"));
+        assert_eq!(
+            msg("cue-variant", "DEE").unwrap(),
+            "DEE looks like the same character as JANE DEE or JOHN DEE: keep to one cue throughout."
+        );
+        assert!(
+            msg("cue-variant", "NELL").is_none(),
+            "YOUNG NELL is a different age, not a variant"
+        );
+        // The introduction is the full name, even when the cue is short.
+        let mut c = ctx(Format::Film);
+        c.people.push(Person {
+            cue: "NELL".into(),
+            name: Some("Nell Price".into()),
+            short: None,
+        });
+        let got = check_scene("INT. HALL - DAY\n\nNell Price waits.", &SceneMeta::default(), &mut c);
+        assert_eq!(
+            only(&got, "intro-caps")[0].fix.as_ref().unwrap().label,
+            "Write NELL PRICE"
+        );
+        let got = check_scene("INT. ROOM - DAY\n\nNELL PRICE sits.", &SceneMeta::default(), &mut c);
+        assert_eq!(
+            only(&got, "caps-after-intro")[0].fix.as_ref().unwrap().label,
+            "Write Nell Price"
         );
     }
 }

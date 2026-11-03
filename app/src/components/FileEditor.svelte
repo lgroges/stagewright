@@ -18,7 +18,7 @@
   let problem = $state<string | null>(null);
 
   const help: Record<string, string> = {
-    "project.yaml": "Title, authors, rating names, running-time settings and act titles.",
+    "project.yaml": "Title, authors, contact details for the title page, rating names, running-time settings and act titles.",
     "characters.yaml": "One entry per character: id, cue (as written in the script), name, track (who plays it).",
     "locations.yaml": "Places scenes can be set: id and name.",
     "songs.yaml": "The musical numbers.",

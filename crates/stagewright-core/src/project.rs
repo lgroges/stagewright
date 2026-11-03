@@ -71,6 +71,15 @@ pub struct ProjectMeta {
     /// Unset: on for film and TV, off for stage plays.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_contd: Option<bool>,
+    /// Contact details for the title page's bottom-left corner: address,
+    /// phone, email, one per line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contact: Option<String>,
+    /// A shooting script (film and TV): camera directions and transitions
+    /// are expected, and the draft is printed on the title page. Unset: a
+    /// spec script.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shooting_script: bool,
     /// Script check settings, e.g. `checks: {off: [contd-mismatch]}`.
     #[serde(default)]
     pub checks: ChecksConfig,

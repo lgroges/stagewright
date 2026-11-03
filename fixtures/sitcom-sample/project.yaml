@@ -1,5 +1,8 @@
 title: "Flat Share"
 authors: ["Stagewright sample"]
+contact: |
+  Stagewright sample
+  sample@example.com
 format: tv-multi
 series: true
 episodes:

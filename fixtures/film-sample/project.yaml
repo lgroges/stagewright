@@ -1,5 +1,8 @@
 title: "Low Tide"
 authors: ["Stagewright sample"]
+contact: |
+  Stagewright sample
+  sample@example.com
 format: film
 draft: "First draft"
 rating_fields: [tension, humour, relevance, quality]

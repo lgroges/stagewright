@@ -151,7 +151,7 @@ function check(name, ok, detail = "") {
     }
     if (pdfText !== null) {
       check("PDF has the title page and the scene", /NIGHT SHIFT/i.test(pdfText) && /INT\. KITCHEN - NIGHT/.test(pdfText) && /You're late\./.test(pdfText), pdfText.slice(0, 400));
-      check("PDF closes the act", /END OF ACT ONE/.test(pdfText), pdfText.slice(-300));
+      check("PDF opens with FADE IN: and closes the show", /FADE IN:/.test(pdfText) && /FADE OUT\.\s+END OF SHOW/.test(pdfText), pdfText.slice(-300));
     }
     await page.click('[data-testid="export"]');
     check("export defaults to the open scene's episode", (await page.locator(".menu select").inputValue()) === "2");

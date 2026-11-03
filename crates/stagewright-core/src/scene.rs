@@ -114,6 +114,18 @@ impl SceneHeading {
     }
 }
 
+/// A closing line: THE END, END OF ACT ONE, END OF SHOW (with or without > <).
+pub fn is_end_line(text: &str) -> bool {
+    let t = text
+        .trim()
+        .trim_start_matches('>')
+        .trim_end_matches('<')
+        .trim()
+        .trim_end_matches('.')
+        .to_uppercase();
+    t == "THE END" || t.starts_with("END OF ")
+}
+
 /// Longest first, so `INT./EXT` wins over `INT`.
 const HEADING_PREFIXES: &[&str] = &["INT./EXT", "INT/EXT", "I/E", "INT", "EXT", "EST"];
 

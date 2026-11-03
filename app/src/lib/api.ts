@@ -75,6 +75,8 @@ export interface ProjectView {
   format_label: string;
   /** (CONT'D) added automatically (project.yaml auto_contd, or the format's default). */
   auto_contd: boolean;
+  /** A shooting script (project.yaml shooting_script); otherwise a spec script. */
+  shooting_script: boolean;
   series: boolean;
   episodes: { number: number; title: string }[];
   heading_locations: string[];

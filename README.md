@@ -116,8 +116,14 @@ In film and TV, characters are introduced once with their full name in capitals 
 then written with their **short name** (set in Cast, e.g. `short: Joanna` in
 characters.yaml): capitals after the introduction are noted with the short name as the
 fix, and typing the first letters of a short name in the action suggests it. Headings
-need a blank line after them and no description in them; action paragraphs are kept to
-4 printed lines. The editor also checks spelling with the system dictionary (the
+need a blank line after them and no description in them, and lead into action; action
+paragraphs are kept to 5 printed lines; (V.O.) and (O.S.) go next to the name;
+parentheticals are lower case; FADE OUT. only ends a film or an act; and action shouldn't
+describe thoughts ("remembers", "realises"). Cues should use one name, with titles
+abbreviated, and one cue per character (listed under Cast). A **spec script** (the
+default for film and TV; switch to **Shooting script** under Export) also notes camera
+directions and CUT TO:, and leaves the draft off the title page. The title page needs
+contact details: `contact:` in project.yaml, printed bottom left. The editor also checks spelling with the system dictionary (the
 **Spelling** button turns it off). Checks can be switched off per project
 (`checks: {off: [...]}` in project.yaml).
 `stagewright check <dir>` prints the same list.

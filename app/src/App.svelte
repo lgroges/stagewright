@@ -149,6 +149,17 @@
                 />
                 Add (CONT'D) automatically
               </label>
+              {#if app.project.format !== "stage"}
+                <label class="opt" title="A spec script is what you send out: no camera directions, no CUT TO:, no draft on the title page. A shooting script has them.">
+                  <input
+                    type="checkbox"
+                    checked={app.project.shooting_script}
+                    onchange={(e) => app.setOption("shooting_script", e.currentTarget.checked ? true : null)}
+                    data-testid="shooting-script"
+                  />
+                  Shooting script
+                </label>
+              {/if}
             </div>
           {/if}
         </div>

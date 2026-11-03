@@ -4,8 +4,9 @@ use crate::ops::{find_scene, load, read_text, scene_label, write_atomic};
 use crate::{ApiError, ApiResult};
 use serde_json::{json, Value};
 use stagewright_core::analysis::scene_stats;
-use stagewright_core::check::{check_scene, Context, Person, Severity, CHECKS};
+use stagewright_core::check::{check_cues, check_scene, Context, Person, Severity, CHECKS};
 use stagewright_core::frontmatter::set_key;
+use stagewright_core::layout::Format;
 use stagewright_core::project::ProjectMeta;
 use stagewright_core::Project;
 use std::path::Path;
@@ -35,7 +36,34 @@ fn context(p: &Project) -> Context {
         off: p.meta.checks.off.iter().cloned().collect(),
         people,
         auto_contd: p.meta.auto_contd(),
+        shooting: p.meta.shooting_script,
+        fade_out_here: false,
     }
+}
+
+/// Whether FADE OUT. may close scene `i` (in running order): the last scene
+/// of a film, or of a TV act.
+fn fade_out_here(p: &Project, i: usize) -> bool {
+    match p.meta.format {
+        Format::Film => i + 1 == p.scenes.len(),
+        Format::TvSingle | Format::TvMulti => p
+            .scenes
+            .get(i + 1)
+            .is_none_or(|next| next.act_ref() != p.scenes[i].act_ref()),
+        Format::Stage => true,
+    }
+}
+
+/// A project-level issue: not on a line of any scene.
+fn project_issue(code: &str, message: String, label: &str, title: &str) -> Value {
+    json!({
+        "code": code,
+        "severity": Severity::Info,
+        "line": 0, "from": 0, "to": 0,
+        "message": message,
+        "fix": null,
+        "scene": "", "label": label, "title": title, "text": "",
+    })
 }
 
 fn checks_json(p: &Project) -> Value {
@@ -55,7 +83,8 @@ pub fn check_project(root: &Path) -> ApiResult {
     let mut ctx = context(&p);
     let mut out = Vec::new();
     let (mut warnings, mut infos) = (0, 0);
-    for sf in &p.scenes {
+    for (n, sf) in p.scenes.iter().enumerate() {
+        ctx.fade_out_here = fade_out_here(&p, n);
         let body = body_of(sf);
         let lines: Vec<&str> = body.split('\n').collect();
         for i in check_scene(&body, &sf.scene.meta, &mut ctx) {
@@ -71,7 +100,12 @@ pub fn check_project(root: &Path) -> ApiResult {
             out.push(v);
         }
     }
-    // The project itself: what the title page will say.
+    // The project itself: the cues, then what the title page will say.
+    let cast_notes = check_cues(&ctx);
+    for (k, note) in cast_notes.into_iter().enumerate() {
+        infos += 1;
+        out.insert(k, project_issue(note.code, note.message, "Cast", "characters.yaml"));
+    }
     if !ctx.off.contains("title-page") {
         let title = p.meta.title.trim();
         let slug_like =
@@ -85,18 +119,25 @@ pub fn check_project(root: &Path) -> ApiResult {
         if p.meta.authors.iter().all(|a| a.trim().is_empty()) {
             problems.push("has no author".to_string());
         }
+        if p.meta.contact.as_deref().is_none_or(|c| c.trim().is_empty()) {
+            problems.push("has no contact details (address, phone and email, for the bottom-left corner)".to_string());
+        }
         if !problems.is_empty() {
             infos += 1;
+            let last = problems.pop().unwrap();
+            let all = if problems.is_empty() {
+                last
+            } else {
+                format!("{}, and {last}", problems.join(", "))
+            };
             out.insert(
                 0,
-                json!({
-                    "code": "title-page",
-                    "severity": Severity::Info,
-                    "line": 0, "from": 0, "to": 0,
-                    "message": format!("The title page {}. Set title and authors in project.yaml.", problems.join(" and ")),
-                    "fix": null,
-                    "scene": "", "label": "Project", "title": "project.yaml", "text": "",
-                }),
+                project_issue(
+                    "title-page",
+                    format!("The title page {all}. Set title, authors and contact in project.yaml."),
+                    "Project",
+                    "project.yaml",
+                ),
             );
         }
     }
@@ -109,8 +150,9 @@ pub fn check_one(root: &Path, id: &str, body: &str) -> ApiResult {
     let target = find_scene(&p, id)?;
     let mut ctx = context(&p);
     // Characters introduced in earlier scenes count as introduced.
-    for sf in &p.scenes {
+    for (n, sf) in p.scenes.iter().enumerate() {
         if sf.scene.meta.id == target.scene.meta.id {
+            ctx.fade_out_here = fade_out_here(&p, n);
             break;
         }
         check_scene(&body_of(sf), &sf.scene.meta, &mut ctx);
@@ -153,7 +195,7 @@ pub fn set_check(root: &Path, code: &str, on: bool) -> ApiResult {
 // ---------------------------------------------------------------- project options
 
 /// Options the app may set in project.yaml.
-const OPTIONS: &[&str] = &["auto_contd"];
+const OPTIONS: &[&str] = &["auto_contd", "shooting_script"];
 
 /// project.yaml with option `name` set (`null` removes it, back to the default).
 pub fn yaml_set_option(text: &str, name: &str, value: &Value) -> Result<String, ApiError> {

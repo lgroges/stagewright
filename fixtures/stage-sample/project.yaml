@@ -1,6 +1,9 @@
 title: "Harbour Lights"
 subtitle: "a comedy with songs"
 authors: ["Stagewright sample"]
+contact: |
+  Stagewright sample
+  sample@example.com
 draft: "Sample (Nov 2026)"
 genre: play
 rating_fields: [tension, humour, relevance, quality]

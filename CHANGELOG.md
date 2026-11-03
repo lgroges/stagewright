@@ -7,7 +7,7 @@ change, the cursor, is listed under 0.3.0.)
 
 ## Unreleased
 
-## 0.4.0 (2026-11-02)
+## 0.4.0 (2026-11-03)
 
 - **Script check.** As you write, likely mistakes are underlined (wavy) and
   conventions noted (dotted); point at one to see why, and fix it in one click where
@@ -19,18 +19,33 @@ change, the cursor, is listed under 0.3.0.)
     dual dialogue (^) with nothing beside it.
   - Notes: (CONT'D) after a different speaker, or typed by hand when it's automatic
     (or spelt (CONT.)); someone "on stage but silent" who speaks; lyrics outside a
-    song; the title page missing a title or author.
+    song; the title page missing a title, author or contact details.
   - Film and TV: a scene heading with no blank line after it (other apps won't read it
     as a heading) or with description in it ("- MORNING. SPRING." — the fix moves it
     into the action); no or a misspelt time of day (NITE); INT without a full stop;
     scenes not starting with a heading; action lines running together without a blank
-    line; action paragraphs longer than 4 printed lines.
+    line; action paragraphs longer than 5 printed lines ("one beat per paragraph");
+    a heading followed straight by dialogue; (V.O.) or (O.S.) written as a
+    parenthetical (the fix moves it next to the name); parentheticals in capitals;
+    FADE OUT. part-way through (it's FADE TO: between scenes).
+  - From the BBC Writersroom format guides: action describing thoughts
+    ("remembers", "realises", "wonders"…) rather than what we see; cues using a
+    full name, a written-out title (MISTER, DOCTOR) or two cues for one character,
+    listed under Cast in Production.
+  - **Spec or shooting script** (under Export, for film and TV): a spec script, the
+    default, notes camera directions and CUT TO:, and leaves the draft off the title
+    page. A shooting script allows them.
   - Characters in film and TV: introduced once with their full name in capitals, then
     written with their **short name** (set in Cast, e.g. Joanna): capitals after the
     introduction are noted, with the short name as the fix, and typing the first
     letters of a short name in the action suggests it.
   - Any check can be switched off for a project ("Don't check for this", or Checks…
     in Production); the setting is kept in project.yaml.
+- **Title page contact details** (`contact:` in project.yaml, one line each for
+  address, phone and email) print in the bottom-left corner, and in Fountain exports.
+- **Exports open and close as the guides set out**: film starts with FADE IN: and ends
+  FADE OUT. and THE END; every TV act starts with FADE IN: and ends with FADE OUT.,
+  and the last act with END OF SHOW. Nothing is doubled if you've typed them.
 - **Spelling** is checked in the script with your computer's own dictionary (the
   Spelling button above the script turns it off).
 - **(CONT'D) added automatically** when a character speaks again after only action,

@@ -567,7 +567,7 @@ class AppState {
   }
 
   /** Set a project option in project.yaml (shared when co-writing). */
-  async setOption(name: "auto_contd", value: unknown) {
+  async setOption(name: "auto_contd" | "shooting_script", value: unknown) {
     await this.guard(async () => {
       if (this.collab) {
         const text = this.collab.fileText("project.yaml") ?? "";

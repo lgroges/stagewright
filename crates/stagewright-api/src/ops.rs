@@ -274,6 +274,7 @@ pub fn project_view(root: &Path) -> ApiResult {
         "format": p.meta.format,
         "format_label": p.meta.format.label(),
         "auto_contd": p.meta.auto_contd(),
+        "shooting_script": p.meta.shooting_script,
         "series": p.series,
         "episodes": episodes,
         "acts": acts,

@@ -172,6 +172,21 @@ async function open(browser, fixture) {
     await f.waitForFunction(() => !document.querySelector('[data-testid="issue-count"]'), null, { timeout: 5000 });
     check("a shooting script allows camera directions", /shooting_script: true/.test(fs.readFileSync(path.join(s2.project, "project.yaml"), "utf8")));
     await f.keyboard.press("Escape");
+    // Grammar in the action, fixed in one click
+    await f.click(".cm-content");
+    await f.keyboard.press("Control+End");
+    await f.keyboard.press("Shift+Enter");
+    await f.keyboard.press("Shift+Enter");
+    await f.keyboard.type("The kettle has been stood there for hours.");
+    await f.keyboard.press("Escape");
+    await f.waitForFunction(() => /note/.test(document.querySelector('[data-testid="issue-count"]')?.textContent ?? ""), null, { timeout: 8000 });
+    await f.click('[data-testid="issue-count"]');
+    const gp = await f.locator(".cm-panel-lint").textContent();
+    check("grammar in the action is noted", /is colloquial/.test(gp), gp);
+    await f.locator(".cm-panel-lint button", { hasText: 'Write "standing"' }).first().click();
+    await f.waitForFunction(() => window.__swText().endsWith("has been standing there for hours."), null, { timeout: 5000 });
+    check("and fixed", true);
+    await f.keyboard.press("Escape");
     await snap(f, "check-3-film.png");
     check("no browser errors (film)", s2.errors.length === 0, s2.errors.join(" | "));
 

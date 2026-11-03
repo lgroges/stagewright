@@ -5,7 +5,7 @@ holds and how to put the script together in order. Keep it current: any change t
 the files the app reads or writes updates this page (and its version) in the same
 commit.
 
-**Format version 3** · last changed in Stagewright 0.6.0 (2026-11-03)
+**Format version 4** · last changed in Stagewright 0.7.0 (2026-11-03)
 
 ## A project is a folder
 
@@ -47,6 +47,7 @@ folders and file names are what decide the order.
 | `auto_contd` | (CONT'D) added in exports when a character speaks again after only action. Default: on for film and TV, off for stage. |
 | `shooting_script` | `true`: a shooting script (camera directions allowed, scene numbers printed). Default: a spec script. |
 | `layout` | PDF layout: `uk-stage` (stage plays) or `bbc-studio` (TV); absent means standard. |
+| `dialect` | The English the grammar check expects: `british` (default), `american`, `canadian`, `australian`, `indian`. |
 | `checks` | `{off: [codes]}`: script-check rules switched off. |
 
 ## characters.yaml
@@ -154,6 +155,7 @@ rewritten and the comment is detached.
 
 ## Changes to this format
 
+- **4** (0.7.0): `dialect`.
 - **3** (0.6.0): `layout`; parentheticals may wrap onto several lines.
 - **2** (0.5.0): `comments.yaml`; `contact`, `shooting_script`; characters' `short`.
 - **1** (0.4.0 and earlier): the folder layout, project.yaml, the registries and `.scene` files.

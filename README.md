@@ -135,7 +135,11 @@ need a blank line after them and no description in them, and lead into action; a
 paragraphs are kept to 5 printed lines; (V.O.) and (O.S.) go next to the name;
 parentheticals are lower case; FADE OUT. only ends a film or an act; action shouldn't
 describe thoughts ("remembers", "realises"); and a character's introduction gives an age,
-like (30s). In any format, the same word twice in a row ("are are") is noted, in action and
+like (30s); headings name the place ("A CHURCHYARD" doesn't); and scenes over 3 pages
+(6 for multi-camera) are noted. In any format, action and stage directions get a
+**grammar check** (Harper, which runs locally; plus "was sat", "him self" and "next the",
+which it misses), in British English unless project.yaml says `dialect: american` (or
+`canadian`, `australian`, `indian`); dialogue is left alone. The same word twice in a row ("are are") is noted, in action and
 directions (dialogue is left alone, where repeats are often meant). A parenthetical can be
 wrapped onto two or three lines as long as it closes. Cues should use one name, with titles
 abbreviated, and one cue per character (listed under Cast). A **spec script** (the

@@ -6,6 +6,7 @@ pub mod check;
 pub mod comments;
 pub mod export;
 pub mod frontmatter;
+pub mod grammar;
 pub mod layout;
 pub mod pdf;
 pub mod project;

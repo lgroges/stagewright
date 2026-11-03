@@ -39,6 +39,7 @@ fn context(p: &Project) -> Context {
         shooting: p.meta.shooting_script,
         fade_out_here: false,
         layout: p.meta.layout.for_format(p.meta.format),
+        english: p.meta.dialect,
     }
 }
 
@@ -150,7 +151,10 @@ pub fn check_one(root: &Path, id: &str, body: &str) -> ApiResult {
     let p = load(root)?;
     let target = find_scene(&p, id)?;
     let mut ctx = context(&p);
-    // Characters introduced in earlier scenes count as introduced.
+    // Characters introduced in earlier scenes count as introduced. Only that is
+    // wanted from them, so skip the slow checks there (this runs as you type).
+    let off = ctx.off.clone();
+    ctx.off.extend(["grammar".to_string(), "scene-long".to_string()]);
     for (n, sf) in p.scenes.iter().enumerate() {
         if sf.scene.meta.id == target.scene.meta.id {
             ctx.fade_out_here = fade_out_here(&p, n);
@@ -158,6 +162,7 @@ pub fn check_one(root: &Path, id: &str, body: &str) -> ApiResult {
         }
         check_scene(&body_of(sf), &sf.scene.meta, &mut ctx);
     }
+    ctx.off = off;
     let issues = check_scene(&body.replace("\r\n", "\n"), &target.scene.meta, &mut ctx);
     Ok(json!({ "issues": issues }))
 }
@@ -196,7 +201,7 @@ pub fn set_check(root: &Path, code: &str, on: bool) -> ApiResult {
 // ---------------------------------------------------------------- project options
 
 /// Options the app may set in project.yaml.
-const OPTIONS: &[&str] = &["auto_contd", "shooting_script", "layout"];
+const OPTIONS: &[&str] = &["auto_contd", "shooting_script", "layout", "dialect"];
 
 /// project.yaml with option `name` set (`null` removes it, back to the default).
 pub fn yaml_set_option(text: &str, name: &str, value: &Value) -> Result<String, ApiError> {

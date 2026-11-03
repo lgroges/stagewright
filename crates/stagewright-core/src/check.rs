@@ -92,6 +92,12 @@ pub const CHECKS: &[(&str, &str)] = &[
     ("cue-variant", "Two cues that look like the same character"),
     ("repeated-word", "The same word twice in a row (\"are are\")"),
     ("age-at-intro", "A character introduced without an age, like (30s)"),
+    ("grammar", "Grammar in action and stage directions"),
+    (
+        "heading-vague",
+        "A scene heading that doesn't name the place (A CHURCHYARD)",
+    ),
+    ("scene-long", "A film or TV scene longer than 3 pages"),
     ("title-page", "Title page details missing"),
 ];
 
@@ -153,6 +159,16 @@ const NOVELISTIC: &[&str] = &[
     "wishes",
     "knows",
     "decides",
+    "intrigued",
+    "curious",
+    "senses",
+    "suspects",
+    "believes",
+    "understands",
+    "hopes",
+    "longs",
+    "yearns",
+    "is aware",
     "can't help but",
     "deep down",
 ];
@@ -328,6 +344,8 @@ pub struct Context {
     /// The export layout: the BBC studio one writes parentheticals in capitals
     /// and a transition after every scene.
     pub layout: crate::layout::Layout,
+    /// The English the grammar check expects.
+    pub english: crate::grammar::English,
 }
 
 /// Words that can rightly come twice in a row ("I had had enough").
@@ -991,6 +1009,38 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
                         ));
                     }
                 }
+                // Grammar (not in dialogue: see grammar.rs).
+                if !ctx.off.contains("grammar") {
+                    let repeated: Vec<(usize, usize)> = out
+                        .iter()
+                        .filter(|x| x.line == i && x.code == "repeated-word")
+                        .map(|x| (x.from - off, x.to - off))
+                        .collect();
+                    for g in crate::grammar::check(t, ctx.english) {
+                        if repeated.iter().any(|(a, b)| g.from < *b + 1 && *a < g.to + 1) {
+                            continue; // already noted as a repeated word
+                        }
+                        let fixed = g.replacement.as_ref().map(|r| {
+                            let before: String = chars[..g.from].iter().collect();
+                            let after: String = chars[g.to..].iter().collect();
+                            let prefix = if *forced { "!" } else { "" };
+                            format!("{prefix}{before}{r}{after}")
+                        });
+                        let label = match &g.replacement {
+                            Some(r) if r.is_empty() => "Remove it".to_string(),
+                            Some(r) => format!("Write \"{r}\""),
+                            None => String::new(),
+                        };
+                        out.push(issue(
+                            "grammar",
+                            Severity::Info,
+                            i,
+                            (g.from + off, g.to + off),
+                            g.message,
+                            fixed.and_then(|text| fix(label, vec![Edit::Replace { line: i, text }])),
+                        ));
+                    }
+                }
             }
             Element::SongStart(s) => {
                 if let Some(start) = open_song {
@@ -1121,6 +1171,19 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
                             ));
                         }
                     }
+                }
+                // "EXT. A CHURCHYARD": which one?
+                let (_, place, _) = h.parts();
+                let up = place.to_uppercase();
+                if screen && (up.starts_with("A ") || up.starts_with("AN ")) {
+                    out.push(issue(
+                        "heading-vague",
+                        Severity::Info,
+                        i,
+                        cols(text, &place),
+                        format!("\"{place}\" doesn't say which: name the place (a reader and the location manager will want to know)."),
+                        None,
+                    ));
                 }
                 if screen && time.is_none() {
                     out.push(issue(
@@ -1313,6 +1376,33 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
         }
     }
 
+    // Film and TV scenes usually run a page or three.
+    if matches!(ctx.format, Format::Film | Format::TvSingle | Format::TvMulti) && !ctx.off.contains("scene-long") {
+        let p = crate::layout::Profile::for_format(ctx.format);
+        let scene = crate::scene::Scene {
+            frontmatter: String::new(),
+            meta: meta.clone(),
+            body: els.clone(),
+            trailing_newline: false,
+        };
+        let eighths = crate::layout::eighths(crate::layout::scene_line_count(&scene, &p), &p);
+        let limit = if ctx.format == Format::TvMulti { 6 * 8 } else { 3 * 8 };
+        if eighths > limit {
+            out.push(issue(
+                "scene-long",
+                Severity::Info,
+                0,
+                (0, 0),
+                format!(
+                    "This scene runs {} pages; most {} scenes run under {}. Could it be cut, or split?",
+                    crate::layout::eighths_label(eighths),
+                    if ctx.format == Format::Film { "film" } else { "TV" },
+                    limit / 8
+                ),
+                None,
+            ));
+        }
+    }
     out.retain(|i| !ctx.off.contains(i.code));
     out.sort_by_key(|i| (i.line, i.from));
     out
@@ -2005,5 +2095,35 @@ mod tests {
             &mut c,
         );
         assert!(only(&got, "age-at-intro").is_empty());
+    }
+
+    #[test]
+    fn grammar_headings_and_long_scenes() {
+        let mut c = ctx(Format::TvSingle);
+        let body = "EXT. A CHURCHYARD - DAY\n\nThe MINISTER has been stood waiting. He is intrigued by the stranger.\n\nNELL\nI was sat there, wasn't I.";
+        let got = check_scene(body, &SceneMeta::default(), &mut c);
+        assert_eq!(only(&got, "heading-vague").len(), 1);
+        let g = only(&got, "grammar");
+        // Action only: the dialogue's "was sat" is how she talks.
+        assert_eq!(g.len(), 1, "{g:?}");
+        assert_eq!(g[0].fix.as_ref().unwrap().label, "Write \"standing\"");
+        assert_eq!(only(&got, "novelistic").len(), 1);
+        c.off.insert("grammar".into());
+        assert!(only(&check_scene(body, &SceneMeta::default(), &mut c), "grammar").is_empty());
+        // Over three pages.
+        let long = format!("INT. HALL - DAY\n\n{}", "Rain falls on the roof.\n\n".repeat(100));
+        let got = check_scene(&long, &SceneMeta::default(), &mut ctx(Format::Film));
+        assert!(only(&got, "scene-long")[0].message.starts_with("This scene runs"));
+        assert!(
+            only(
+                &check_scene(
+                    "INT. HALL - DAY\n\nRain.",
+                    &SceneMeta::default(),
+                    &mut ctx(Format::Film)
+                ),
+                "scene-long"
+            )
+            .is_empty()
+        );
     }
 }

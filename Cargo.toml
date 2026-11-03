@@ -10,3 +10,8 @@ edition = "2021"
 # Change it with `node scripts/release.mjs <version>`, not by hand.
 version = "0.6.0"
 license = "UNLICENSED"
+
+# The grammar checker (harper-core and its dependencies) is slow unoptimised:
+# seconds to start. Optimise dependencies even in dev builds; our crates stay quick to build.
+[profile.dev.package."*"]
+opt-level = 2

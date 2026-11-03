@@ -4,6 +4,29 @@ Choices made about Stagewright and why, newest first. Each entry: what we chose,
 the reason, and what we didn't do. Ideas still open or turned down are in
 [ideas.md](ideas.md).
 
+## 2026-11-03 · A grammar checker: Harper, locally
+
+The script check gets grammar from Harper (harper-core, Apache-2.0), a Rust grammar
+checker that runs on the writer's computer.
+
+- **Why Harper**: it's local and private (unpublished scripts never leave the
+  machine), fast (a scene in tens of milliseconds), and it's Rust, so it lives in the
+  core with the other checks. We didn't use LanguageTool, which is broader but needs
+  Java locally or sends text to its server.
+- **Action and directions only.** Dialogue is how characters speak, and period dialogue
+  (the 1559 burial service, say) sets off false alarms such as who/whom.
+- **What's left out of Harper**: spelling (the system spellchecker does it and knows
+  the writer's words), readability and style advice, repetition (our own check, which
+  allows "had had"), its who/whom rule (wrong on "the front right of whom is…"), and
+  anything on words in capitals (names, places, camera terms).
+- **House rules** for British usage Harper misses: "was sat"/"been stood", split
+  reflexives ("him self"), "next the".
+- **British by default**, `dialect:` in project.yaml for others. No setting in the app
+  yet; it rarely changes.
+- **Cost**: about 13 MB on the app, and most of a second to start, so it's built in
+  the background when a project opens. Dependencies are optimised in dev builds too.
+  As you type, only the open scene is grammar-checked.
+
 ## 2026-11-03 · A format reference, and a skill that reads it
 
 So Claude can read Stagewright projects in any session (for research on a play, say),

@@ -49,6 +49,15 @@ impl std::error::Error for ApiError {}
 
 pub type ApiResult = Result<Value, ApiError>;
 
+/// Get the grammar checker ready in the background (it takes most of a second to
+/// build), so the first script check after opening a project doesn't wait.
+pub fn warm_up(root: &std::path::Path) {
+    let english = stagewright_core::Project::load(root)
+        .map(|p| p.meta.dialect)
+        .unwrap_or_default();
+    stagewright_core::grammar::warm_up(english);
+}
+
 /// The open project, if any.
 #[derive(Debug, Default)]
 pub struct Workspace {
@@ -112,6 +121,7 @@ pub fn dispatch(ws: &mut Workspace, cmd: &str, args: Value) -> ApiResult {
         "project_open" => {
             let root = PathBuf::from(arg_str(&args, "root")?);
             let view = ops::project_view(&root)?;
+            warm_up(&root);
             ws.root = Some(root);
             Ok(view)
         }

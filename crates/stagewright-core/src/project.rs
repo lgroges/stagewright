@@ -84,9 +84,17 @@ pub struct ProjectMeta {
     /// for TV; unset, the standard layout.
     #[serde(default, skip_serializing_if = "is_standard")]
     pub layout: crate::layout::Layout,
+    /// The English the grammar check expects: british (default), american,
+    /// canadian, australian or indian.
+    #[serde(default, skip_serializing_if = "is_british")]
+    pub dialect: crate::grammar::English,
     /// Script check settings, e.g. `checks: {off: [contd-mismatch]}`.
     #[serde(default)]
     pub checks: ChecksConfig,
+}
+
+fn is_british(e: &crate::grammar::English) -> bool {
+    *e == crate::grammar::English::British
 }
 
 fn is_standard(l: &crate::layout::Layout) -> bool {

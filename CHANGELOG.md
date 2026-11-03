@@ -7,6 +7,15 @@ change, the cursor, is listed under 0.3.0.)
 
 ## Unreleased
 
+- **Grammar check** in action and stage directions, by Harper, which runs on your
+  computer (nothing is sent anywhere): "its"/"it's", "could of", agreement and so on,
+  with a one-click fix where there is one. Plus British usages it misses: "has been
+  stood" (standing), "him self" (himself), "next the" (next to the). Dialogue is left
+  alone. British English by default; `dialect: american` (etc.) in project.yaml.
+- More thoughts the camera can't see are noted: "intrigued", "curious", "senses",
+  "suspects", "believes", "hopes" …
+- Film and TV: a scene heading that doesn't name the place ("EXT. A CHURCHYARD"), and
+  scenes longer than 3 pages (6 for multi-camera), are noted.
 - Find and replace (Ctrl+F) is easier to read, especially in dark mode: its fields,
   buttons and labels use the app's colours, and matches are clearer in the text.
 

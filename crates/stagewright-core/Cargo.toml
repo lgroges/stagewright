@@ -7,6 +7,8 @@ edition = "2024"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 serde_yaml = "0.9.34"
+# Grammar checking, locally (Apache-2.0). No thesaurus: it adds size and isn't used.
+harper-core = { version = "3.0.0", default-features = false, features = ["concurrent"] }
 
 [dev-dependencies]
 serde_yaml = "0.9.34"

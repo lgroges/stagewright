@@ -8,3 +8,9 @@
   the updater signing key.
 - Tag pushes are blocked from Claude's environment; releases are started by Liam
   from Actions → release → Run workflow.
+- docs/format.md is the reference for reading projects outside the app (Liam's
+  `stagewright-projects` skill fetches it live). When a change touches the files the
+  app reads or writes, update docs/format.md and bump its "Format version" in the
+  same commit. If the change also makes the summary in docs/skill/SKILL.md wrong,
+  update that file too and propose the updated skill to Liam (propose_skills, full
+  SKILL.md).

@@ -4,6 +4,16 @@ Choices made about Stagewright and why, newest first. Each entry: what we chose,
 the reason, and what we didn't do. Ideas still open or turned down are in
 [ideas.md](ideas.md).
 
+## 2026-11-03 · A format reference, and a skill that reads it
+
+So Claude can read Stagewright projects in any session (for research on a play, say),
+the file format is written up in docs/format.md, with a format version. Liam's
+`stagewright-projects` skill (source in docs/skill/SKILL.md) fetches that page live
+and carries a summary as a fallback, so most format changes need no skill update;
+when the summary would mislead, the skill is updated and re-proposed. We didn't put
+the whole reference in the skill, because a saved skill can only change when Liam
+saves a new version.
+
 ## 2026-11-03 · Layouts, scene numbers, and two more checks
 
 - **Layouts are a project setting (`layout:`), chosen under Export**, and apply only to

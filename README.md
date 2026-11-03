@@ -219,7 +219,8 @@ the Rust parser; CI regenerates `classify.json` from Rust and fails if the two d
 ## Developing
 
 Decisions and the reasons for them are in [docs/decisions.md](docs/decisions.md);
-ideas still open or turned down are in [docs/ideas.md](docs/ideas.md).
+ideas still open or turned down are in [docs/ideas.md](docs/ideas.md). The project
+files are described for readers outside the app in [docs/format.md](docs/format.md).
 
 ```
 cargo test                          # Rust: parser, API operations, analysis

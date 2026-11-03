@@ -7,13 +7,13 @@
 //   cargo build -p stagewright && npm run build && node e2e/update.cjs
 
 const { chromium } = require("playwright");
-const { repo, bin, check, fail, finish, copyDir, serverUp } = require("./lib.cjs");
+const { repo, bin, check, fail, finish, copyDir, serverUp, pickPort } = require("./lib.cjs");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const port = 5050 + Math.floor(Math.random() * 40);
+const port = pickPort(5050, 40);
 const shots = process.env.SHOTS_DIR;
 const version = JSON.parse(fs.readFileSync(path.join(__dirname, "../package.json"), "utf8")).version;
 

@@ -7,13 +7,13 @@
 // Needs Playwright with Chromium available (require('playwright')).
 
 const { chromium } = require("playwright");
-const { repo, bin, check, fail, finish, serverUp } = require("./lib.cjs");
+const { repo, bin, check, fail, finish, serverUp, pickPort } = require("./lib.cjs");
 const { spawn, execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const port = 4950 + Math.floor(Math.random() * 40);
+const port = pickPort(4950, 40);
 const shots = process.env.SHOTS_DIR;
 
 

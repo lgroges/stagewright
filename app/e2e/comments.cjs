@@ -4,7 +4,7 @@
 //   cargo build -p stagewright && npm run build && node e2e/comments.cjs
 
 const { chromium } = require("playwright");
-const { repo, bin, check, fail, finish, copyDir, until, serverUp } = require("./lib.cjs");
+const { repo, bin, check, fail, finish, copyDir, until, serverUp, pickPort } = require("./lib.cjs");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -18,7 +18,7 @@ const shots = process.env.SHOTS_DIR;
 (async () => {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "sw-comments-"));
   copyDir(path.join(repo, "fixtures/stage-sample"), project);
-  const port = 5100 + Math.floor(Math.random() * 250);
+  const port = pickPort(5100, 250);
   const server = spawn(bin, ["serve", project, "--port", String(port), "--static", path.join(repo, "app/dist")], { stdio: "pipe" });
   await serverUp(port);
   const browser = await chromium.launch();

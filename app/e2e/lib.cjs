@@ -49,6 +49,20 @@ async function until(fn, ms = 6000, what = "condition") {
   }
 }
 
+const handedOut = new Set();
+
+/** A port in `base`..`base + span` not already given out by this run, so two
+ * servers in one suite can't end up on the same port. */
+function pickPort(base, span) {
+  for (;;) {
+    const p = base + Math.floor(Math.random() * span);
+    if (!handedOut.has(p)) {
+      handedOut.add(p);
+      return p;
+    }
+  }
+}
+
 /** Wait until something is listening on `port` (a server just spawned). */
 async function serverUp(port, ms = 10000) {
   await until(
@@ -63,4 +77,4 @@ async function serverUp(port, ms = 10000) {
   );
 }
 
-module.exports = { repo, bin, check, fail, failures, finish, copyDir, until, serverUp };
+module.exports = { repo, bin, check, fail, failures, finish, copyDir, until, serverUp, pickPort };

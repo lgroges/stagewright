@@ -4,7 +4,7 @@
 //   cargo build -p stagewright && npm run build && node e2e/check.cjs
 
 const { chromium } = require("playwright");
-const { repo, bin, check, fail, finish, copyDir, serverUp } = require("./lib.cjs");
+const { repo, bin, check, fail, finish, copyDir, serverUp, pickPort } = require("./lib.cjs");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -17,7 +17,7 @@ const shots = process.env.SHOTS_DIR;
 async function open(browser, fixture) {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "sw-check-"));
   copyDir(path.join(repo, "fixtures", fixture), project);
-  const port = 5400 + Math.floor(Math.random() * 300);
+  const port = pickPort(5400, 300);
   const server = spawn(bin, ["serve", project, "--port", String(port), "--static", path.join(repo, "app/dist")], { stdio: "pipe" });
   await serverUp(port);
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });

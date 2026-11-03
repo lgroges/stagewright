@@ -171,3 +171,69 @@ kbd {
   color: var(--ink) !important;
   border-color: var(--line) !important;
 }
+
+/* Find and replace (Ctrl+F) in the script and file editors: the app's colours,
+   so buttons and fields stay readable in dark mode. */
+.cm-panel.cm-search {
+  font-family: var(--ui-font);
+  font-size: 13px;
+  padding: 6px 28px 6px 10px;
+  color: var(--ink);
+}
+.cm-panel.cm-search .cm-textfield {
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 3px 7px;
+  font: inherit;
+}
+.cm-panel.cm-search .cm-textfield::placeholder {
+  color: var(--ink-3);
+  opacity: 1;
+}
+.cm-panel.cm-search .cm-textfield:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.cm-panel.cm-search .cm-button {
+  background: var(--paper);
+  background-image: none;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 3px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+.cm-panel.cm-search .cm-button:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.cm-panel.cm-search .cm-button:active {
+  background: var(--accent);
+  color: #fff;
+}
+.cm-panel.cm-search label {
+  color: var(--ink-2);
+  font-size: 12.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 8px;
+}
+.cm-panel.cm-search input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+.cm-panel.cm-search button[name="close"] {
+  color: var(--ink-2);
+  font-size: 18px;
+}
+.cm-editor .cm-searchMatch {
+  background: color-mix(in srgb, var(--warn) 30%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--warn) 60%, transparent);
+}
+.cm-editor .cm-searchMatch-selected {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}

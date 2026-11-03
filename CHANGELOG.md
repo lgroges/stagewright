@@ -7,6 +7,9 @@ change, the cursor, is listed under 0.3.0.)
 
 ## Unreleased
 
+- Find and replace (Ctrl+F) is easier to read, especially in dark mode: its fields,
+  buttons and labels use the app's colours, and matches are clearer in the text.
+
 ## 0.6.0 (2026-11-03)
 
 - **Layouts for the PDF**, chosen under Export:

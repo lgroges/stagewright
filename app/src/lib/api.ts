@@ -19,6 +19,7 @@ export class ApiError extends Error {
 }
 
 export type Format = "stage" | "film" | "tv-single" | "tv-multi";
+export type Layout = "standard" | "uk-stage" | "bbc-studio";
 
 /** A comment thread, pinned to a passage of one scene (comments.yaml). */
 export interface CommentMessage {
@@ -108,6 +109,9 @@ export interface ProjectView {
   auto_contd: boolean;
   /** A shooting script (project.yaml shooting_script); otherwise a spec script. */
   shooting_script: boolean;
+  /** How exports lay the script out, and the layouts this format offers. */
+  layout: Layout;
+  layouts: { id: Layout; name: string }[];
   series: boolean;
   episodes: { number: number; title: string }[];
   heading_locations: string[];

@@ -90,6 +90,8 @@ pub const CHECKS: &[(&str, &str)] = &[
     ("cue-full-name", "A cue using a character's full name"),
     ("cue-title", "A cue with a title written out (MISTER, DOCTOR)"),
     ("cue-variant", "Two cues that look like the same character"),
+    ("repeated-word", "The same word twice in a row (\"are are\")"),
+    ("age-at-intro", "A character introduced without an age, like (30s)"),
     ("title-page", "Title page details missing"),
 ];
 
@@ -323,6 +325,29 @@ pub struct Context {
     pub shooting: bool,
     /// FADE OUT. may close this scene: the last scene of a film, or of a TV act.
     pub fade_out_here: bool,
+    /// The export layout: the BBC studio one writes parentheticals in capitals
+    /// and a transition after every scene.
+    pub layout: crate::layout::Layout,
+}
+
+/// Words that can rightly come twice in a row ("I had had enough").
+const DOUBLES: &[&str] = &["had", "that"];
+
+/// Whether the text after a character's introduction gives their age:
+/// "(40s)", "(2)", "(late twenties)", ", 50s,".
+fn gives_age(after: &str) -> bool {
+    let t = after.trim_start();
+    if let Some(inner) = t.strip_prefix('(') {
+        let inner = inner.split(')').next().unwrap_or("").to_lowercase();
+        return inner.chars().any(|c| c.is_ascii_digit())
+            || [
+                "teen", "twent", "thirt", "fort", "fift", "sixt", "sevent", "eight", "ninet", "baby", "infant",
+            ]
+            .iter()
+            .any(|w| inner.contains(w));
+    }
+    t.strip_prefix(',')
+        .is_some_and(|r| r.trim_start().starts_with(|c: char| c.is_ascii_digit()))
 }
 
 /// A note about the cast as a whole, not one line of a scene.
@@ -794,6 +819,21 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
                         let after: String = text.chars().skip(span.1).collect();
                         if !ctx.introduced.contains(&p.cue) {
                             ctx.introduced.insert(p.cue.clone());
+                            // A possessive ("JOHN WESTON's funeral") isn't a place for an age.
+                            let possessive = after.starts_with("'s") || after.starts_with("’s");
+                            if !gives_age(&after) && !possessive {
+                                out.push(issue(
+                                    "age-at-intro",
+                                    Severity::Info,
+                                    i,
+                                    span,
+                                    format!(
+                                        "First appearance of {}: screenplays usually give an age here, like (30s).",
+                                        p.cue
+                                    ),
+                                    None,
+                                ));
+                            }
                             if !caps {
                                 let full = p
                                     .name
@@ -898,6 +938,44 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
                             ));
                         }
                     }
+                }
+                // The same word twice in a row: "heads are are bowed".
+                let mut prev: Option<(usize, usize)> = None;
+                let mut k = 0;
+                while k < chars.len() {
+                    if !chars[k].is_alphabetic() {
+                        k += 1;
+                        continue;
+                    }
+                    let start = k;
+                    while k < chars.len() && (chars[k].is_alphabetic() || chars[k] == '\'' || chars[k] == '’') {
+                        k += 1;
+                    }
+                    if let Some((ps, pe)) = prev {
+                        let gap: String = chars[pe..start].iter().collect();
+                        let a: String = chars[ps..pe].iter().collect::<String>().to_lowercase();
+                        let b: String = chars[start..k].iter().collect::<String>().to_lowercase();
+                        if a == b && !gap.is_empty() && gap.chars().all(|c| c == ' ') && !DOUBLES.contains(&a.as_str())
+                        {
+                            let fixed: String = chars[..pe].iter().chain(chars[k..].iter()).collect();
+                            let prefix = if *forced { "!" } else { "" };
+                            out.push(issue(
+                                "repeated-word",
+                                Severity::Info,
+                                i,
+                                (pe + off, k + off),
+                                format!("\"{b}\" twice in a row."),
+                                fix(
+                                    format!("Remove the second \"{b}\""),
+                                    vec![Edit::Replace {
+                                        line: i,
+                                        text: format!("{prefix}{fixed}"),
+                                    }],
+                                ),
+                            ));
+                        }
+                    }
+                    prev = Some((start, k));
                 }
                 // What's in a character's head can't be filmed or staged.
                 for w in NOVELISTIC {
@@ -1154,6 +1232,7 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
                     ));
                 } else if screen
                     && ctx.format != Format::TvMulti
+                    && ctx.layout != crate::layout::Layout::BbcStudio
                     && inner.chars().filter(|c| c.is_alphabetic()).count() >= 2
                     && !inner.chars().any(|c| c.is_lowercase())
                 {
@@ -1192,7 +1271,8 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
             Element::Transition { text: t, .. } => {
                 let upper = t.trim().to_uppercase();
                 let film_or_single = matches!(ctx.format, Format::Film | Format::TvSingle);
-                if upper == "CUT TO:" && film_or_single && !ctx.shooting {
+                let studio = ctx.layout == crate::layout::Layout::BbcStudio;
+                if upper == "CUT TO:" && film_or_single && !ctx.shooting && !studio {
                     let mut edits = vec![Edit::Delete { line: i }];
                     if i > 0 && blank(i - 1) && blank(i + 1) {
                         edits.insert(0, Edit::Delete { line: i - 1 });
@@ -1308,6 +1388,8 @@ mod tests {
             format,
             known: cast.clone(),
             cast,
+            // Most tests are about other rules; `ages_and_repeated_words` checks this one.
+            off: ["age-at-intro".to_string()].into(),
             ..Default::default()
         }
     }
@@ -1891,5 +1973,37 @@ mod tests {
             only(&got, "caps-after-intro")[0].fix.as_ref().unwrap().label,
             "Write Nell Price"
         );
+    }
+
+    #[test]
+    fn ages_and_repeated_words() {
+        let mut c = ctx(Format::Film);
+        c.off.clear();
+        let body = "INT. HALL - DAY\n\nNELL (30s) and TOBIAS wait. HETTIE, 40, sits.\n\nThe heads are are bowed. I had had enough.";
+        let got = check_scene(body, &SceneMeta::default(), &mut c);
+        let ages: Vec<&str> = got
+            .iter()
+            .filter(|i| i.code == "age-at-intro")
+            .map(|i| &body.split('\n').nth(2).unwrap()[i.from..i.to])
+            .collect();
+        assert_eq!(ages, vec!["TOBIAS"]);
+        let r = only(&got, "repeated-word");
+        assert_eq!(r.len(), 1);
+        assert_eq!(
+            r[0].fix.as_ref().unwrap().edits,
+            vec![Edit::Replace {
+                line: 4,
+                text: "The heads are bowed. I had had enough.".into()
+            }]
+        );
+        // A possessive introduction isn't a place for an age.
+        let mut c = ctx(Format::Film);
+        c.off.clear();
+        let got = check_scene(
+            "INT. HALL - DAY\n\nNELL's coat hangs there.",
+            &SceneMeta::default(),
+            &mut c,
+        );
+        assert!(only(&got, "age-at-intro").is_empty());
     }
 }

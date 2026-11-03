@@ -2,7 +2,8 @@
 
 use crate::analysis::scene_stats;
 use crate::layout::{
-    Block, BlockKind, Format, Line, Page, Profile, centered_slot, header_block, paginate, scene_blocks, text_block,
+    Block, BlockKind, Format, Layout, Line, Page, Profile, centered_slot, header_block, paginate,
+    scene_blocks_numbered, text_block,
 };
 use crate::pdf::{PdfPage, PdfSettings, render};
 use crate::project::{ActRef, Project, SceneFile};
@@ -75,8 +76,109 @@ fn fade_out(prof: &Profile) -> Block {
     text_block("FADE OUT.", &prof.transition, 1)
 }
 
+const ROMAN: &[&str] = &["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+
+/// The UK stage layout: ACT I SCENE 1 at the top of every scene's page,
+/// CURTAIN at the end of every act.
+fn uk_stage_blocks(p: &Project, prof: &Profile) -> Vec<Block> {
+    let mut out: Vec<Block> = Vec::new();
+    let mut n = 0;
+    for (aref, scenes) in selection(p, None) {
+        for (si, sf) in scenes.iter().enumerate() {
+            let act = match aref.act {
+                0 => "PROLOGUE".to_string(),
+                a => format!(
+                    "ACT {}",
+                    ROMAN
+                        .get(a as usize)
+                        .copied()
+                        .map(str::to_string)
+                        .unwrap_or(a.to_string())
+                ),
+            };
+            let label = if aref.act == 0 && scenes.len() == 1 {
+                act
+            } else {
+                format!("{act:<16}SCENE {}", si + 1)
+            };
+            let mut head = text_block(&label, &prof.heading, 0);
+            head.kind = BlockKind::Title;
+            head.page_break = !out.is_empty();
+            out.push(head);
+            let mut blocks = scene_blocks_numbered(&sf.scene, prof, &mut n);
+            if let Some(first) = blocks.first_mut() {
+                first.space_before = 2;
+            }
+            out.extend(blocks);
+        }
+        if !scenes.last().is_some_and(|sf| scene_says(sf, true, "CURTAIN")) {
+            out.push(text_block("CURTAIN", &prof.action, 2));
+        }
+    }
+    out
+}
+
+/// The BBC studio layout (taped drama and sitcom): every scene on a new page,
+/// numbered, ending with a transition (CUT TO: unless one is written); the
+/// episode ends END OF EPISODE.
+fn studio_blocks(p: &Project, prof: &Profile, episode: Option<u32>) -> Vec<Block> {
+    let mut out: Vec<Block> = Vec::new();
+    let mut n = 0;
+    let mut last_episode: Option<Option<u32>> = None;
+    let acts = selection(p, episode);
+    let multi_act = acts.iter().filter(|(a, _)| a.episode == acts[0].0.episode).count() > 1;
+    for (ai, (aref, scenes)) in acts.iter().enumerate() {
+        if last_episode != Some(aref.episode) {
+            if let (Some(e), None) = (aref.episode, episode) {
+                let t = p.episode_title(e).unwrap_or_else(|| format!("Episode {e}"));
+                out.push(header_block(&format!("EPISODE {e}: {t}"), prof, !out.is_empty()));
+            }
+            n = 0;
+            last_episode = Some(aref.episode);
+        }
+        let ends_episode = acts.get(ai + 1).is_none_or(|(next, _)| next.episode != aref.episode);
+        if multi_act {
+            out.push(header_block(&act_heading(p, aref.act), prof, !out.is_empty()));
+        }
+        for (si, sf) in scenes.iter().enumerate() {
+            let mut blocks = scene_blocks_numbered(&sf.scene, prof, &mut n);
+            if let Some(first) = blocks.first_mut() {
+                // A new page for every scene (an act title keeps its first scene).
+                let after_title = out.last().is_some_and(|b| b.kind == BlockKind::Title);
+                first.page_break = !out.is_empty() && !after_title;
+                first.space_before = 2;
+            }
+            out.extend(blocks);
+            let last = ends_episode && si + 1 == scenes.len();
+            let ends_with_transition = sf
+                .scene
+                .body
+                .iter()
+                .rev()
+                .find(|e| !matches!(e, Element::Blank))
+                .is_some_and(|e| matches!(e, Element::Transition { .. }));
+            if !last && !ends_with_transition {
+                out.push(text_block("CUT TO:", &prof.transition, 2));
+            }
+        }
+        if ends_episode {
+            let mut b = text_block("END OF EPISODE", &prof.transition, 3);
+            b.lines.iter_mut().for_each(|l| l.style = crate::layout::Style::Bold);
+            out.push(b);
+        }
+    }
+    out
+}
+
 fn script_blocks(p: &Project, prof: &Profile, episode: Option<u32>) -> Vec<Block> {
+    match prof.layout {
+        Layout::UkStage => return uk_stage_blocks(p, prof),
+        Layout::BbcStudio => return studio_blocks(p, prof, episode),
+        Layout::Standard => {}
+    }
     let f = p.meta.format;
+    // Scene numbers (shooting scripts), counted through each episode.
+    let mut number = 0;
     let mut out: Vec<Block> = Vec::new();
     let mut letter = 0usize;
     let mut last_episode: Option<Option<u32>> = None;
@@ -99,6 +201,7 @@ fn script_blocks(p: &Project, prof: &Profile, episode: Option<u32>) -> Vec<Block
                 out.push(header_block(&format!("EPISODE {e}: {t}"), prof, !out.is_empty()));
                 letter = 0;
             }
+            number = 0;
             last_episode = Some(aref.episode);
         }
         let heading = act_heading(p, aref.act);
@@ -111,7 +214,7 @@ fn script_blocks(p: &Project, prof: &Profile, episode: Option<u32>) -> Vec<Block
             ));
         }
         for (si, sf) in scenes.iter().enumerate() {
-            let mut blocks = scene_blocks(&sf.scene, prof);
+            let mut blocks = scene_blocks_numbered(&sf.scene, prof, &mut number);
             let fade_in_here = opens && si == 0 && !scene_says(sf, false, "FADE IN");
             if f == Format::TvMulti {
                 // Every scene on a new page, lettered, with its cast under the heading.
@@ -246,6 +349,7 @@ fn title_page(p: &Project, prof: &Profile, episode: Option<u32>) -> Page {
             col,
             style: crate::layout::Style::Plain,
             underline: false,
+            number: None,
         };
         if let Some(d) = draft {
             page.push(line(d, prof.cols.saturating_sub(d.chars().count())));
@@ -257,10 +361,19 @@ fn title_page(p: &Project, prof: &Profile, episode: Option<u32>) -> Page {
     page
 }
 
+/// How this project prints: its format, in its layout, with its options.
+pub fn profile(p: &Project) -> Profile {
+    let mut prof = Profile::with_layout(p.meta.format, p.meta.layout);
+    let standard = prof.layout == Layout::Standard;
+    // The studio and UK layouts repeat the name instead (UK: leave it out).
+    prof.auto_contd = p.meta.auto_contd() && standard;
+    prof.margin_numbers = standard && p.meta.format.is_screen() && p.meta.shooting_script;
+    prof
+}
+
 /// The script as pages (title page first).
 pub fn pages(p: &Project, episode: Option<u32>) -> (Profile, Vec<Page>) {
-    let mut prof = Profile::for_format(p.meta.format);
-    prof.auto_contd = p.meta.auto_contd();
+    let prof = profile(p);
     let mut out = vec![title_page(p, &prof, episode)];
     out.extend(paginate(&script_blocks(p, &prof, episode), &prof));
     (prof, out)
@@ -284,6 +397,7 @@ pub fn pdf(p: &Project, episode: Option<u32>) -> Vec<u8> {
             page_h: prof.page_h,
             left: prof.left,
             top: prof.top,
+            cols: prof.cols,
             title: p.meta.title.clone(),
             author: p.meta.authors.join(" & "),
         },
@@ -309,13 +423,34 @@ pub fn fountain(p: &Project, episode: Option<u32>) -> String {
         }
     }
     out.push('\n');
+    let shooting = p.meta.format.is_screen() && p.meta.shooting_script;
+    let mut number = 0u32;
+    let mut last_episode = None;
     for (aref, scenes) in selection(p, episode) {
+        if last_episode != Some(aref.episode) {
+            number = 0;
+            last_episode = Some(aref.episode);
+        }
         out.push_str(&format!("# {}\n\n", act_heading(p, aref.act)));
         for sf in scenes {
             if let Some(t) = &sf.scene.meta.title {
                 out.push_str(&format!("## {t}\n\n"));
             }
             let mut body_els = sf.scene.body.clone();
+            if shooting {
+                // Shooting scripts: every heading numbered (#12#), as in the PDF.
+                for el in body_els.iter_mut() {
+                    if let Element::SceneHeading(h) = el {
+                        number = match h.number.as_deref().map(str::parse::<u32>) {
+                            Some(Ok(n)) => n,
+                            _ => number + 1,
+                        };
+                        if h.number.is_none() {
+                            h.raw = format!("{} #{number}#", h.raw.trim_end());
+                        }
+                    }
+                }
+            }
             if p.meta.auto_contd() {
                 for i in crate::scene::continued_cues(&body_els) {
                     if let Element::Cue(c) = &mut body_els[i] {

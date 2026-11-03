@@ -4,6 +4,28 @@ Choices made about Stagewright and why, newest first. Each entry: what we chose,
 the reason, and what we didn't do. Ideas still open or turned down are in
 [ideas.md](ideas.md).
 
+## 2026-11-03 · Layouts, scene numbers, and two more checks
+
+- **Layouts are a project setting (`layout:`), chosen under Export**, and apply only to
+  the formats they belong to: UK stage to stage plays, BBC studio to TV. Running time
+  and page counts still use the standard layout, which is what timings are based on;
+  Fountain exports are always standard.
+- **UK stage** follows the BBC stage guide. A character carrying on after a direction
+  isn't named again (the guide's rule), worked out the same way as automatic (CONT'D).
+- **BBC studio** follows the taped drama and sitcom guides. Speeches move whole to the
+  next page rather than splitting with (MORE). CUT TO: is added after a scene unless
+  the writer wrote a transition. The studio layout's capitals parentheticals and
+  CUT TO: aren't flagged by the check.
+- **Shooting scripts number every heading** in both margins, counting through each
+  episode; a typed `#12#` sets the number and the count goes on from it.
+- **Repeated words are only checked in action and directions.** In dialogue a repeat
+  is often meant ("no no no"). "had had" and "that that" are allowed.
+- **Ages at introduction** accept "(40s)", "(2)", "(late twenties)" or ", 50,"; a
+  possessive introduction ("JOHN WESTON's funeral") is let off. Like every check it
+  can be switched off.
+- **A parenthetical may wrap onto up to three lines** if it closes; the editor and the
+  Rust parser read it the same way.
+
 ## 2026-11-03 · Comments: threads in a separate file
 
 Comments work like Google Docs: a thread on a selected passage, with replies, edit

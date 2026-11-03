@@ -38,6 +38,7 @@ fn context(p: &Project) -> Context {
         auto_contd: p.meta.auto_contd(),
         shooting: p.meta.shooting_script,
         fade_out_here: false,
+        layout: p.meta.layout.for_format(p.meta.format),
     }
 }
 
@@ -195,7 +196,7 @@ pub fn set_check(root: &Path, code: &str, on: bool) -> ApiResult {
 // ---------------------------------------------------------------- project options
 
 /// Options the app may set in project.yaml.
-const OPTIONS: &[&str] = &["auto_contd", "shooting_script"];
+const OPTIONS: &[&str] = &["auto_contd", "shooting_script", "layout"];
 
 /// project.yaml with option `name` set (`null` removes it, back to the default).
 pub fn yaml_set_option(text: &str, name: &str, value: &Value) -> Result<String, ApiError> {

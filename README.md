@@ -66,6 +66,21 @@ the teaser or cold open.
 whole series. From the command line:
 `stagewright export path/to/project script.pdf [--episode 2]`.
 
+The Export menu also chooses a **layout** for the PDF (`layout:` in project.yaml):
+- **UK stage** (stage plays, as the BBC stage guide sets them): the name at the left
+  margin with a colon and the speech beside it, parentheticals in capitals inside the
+  speech, directions in capitals, ACT I SCENE 1 at the top of every scene's page, and
+  CURTAIN at the end of each act. A character carrying on after a direction isn't
+  named again.
+- **BBC studio** (TV, as taped drama and sitcom): a wide left margin, scenes numbered
+  (SC1. for drama, SCENE 1. for sitcom) on new pages, NAME: underlined over the speech,
+  action in capitals (in square brackets for drama), CUT TO: after every scene unless
+  you've written a transition, and END OF EPISODE.
+
+A **shooting script** (film and TV) prints scene numbers in both margins beside every
+heading, counting through each episode (`#12#` on a heading sets its number), and
+Fountain exports carry them too.
+
 ### Writing a scene without typing any markup
 
 | Key | What it does |
@@ -118,8 +133,11 @@ characters.yaml): capitals after the introduction are noted with the short name 
 fix, and typing the first letters of a short name in the action suggests it. Headings
 need a blank line after them and no description in them, and lead into action; action
 paragraphs are kept to 5 printed lines; (V.O.) and (O.S.) go next to the name;
-parentheticals are lower case; FADE OUT. only ends a film or an act; and action shouldn't
-describe thoughts ("remembers", "realises"). Cues should use one name, with titles
+parentheticals are lower case; FADE OUT. only ends a film or an act; action shouldn't
+describe thoughts ("remembers", "realises"); and a character's introduction gives an age,
+like (30s). In any format, the same word twice in a row ("are are") is noted, in action and
+directions (dialogue is left alone, where repeats are often meant). A parenthetical can be
+wrapped onto two or three lines as long as it closes. Cues should use one name, with titles
 abbreviated, and one cue per character (listed under Cast). A **spec script** (the
 default for film and TV; switch to **Shooting script** under Export) also notes camera
 directions and CUT TO:, and leaves the draft off the title page. The title page needs

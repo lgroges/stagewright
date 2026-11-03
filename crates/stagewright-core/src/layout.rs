@@ -10,6 +10,14 @@
 //! - `tv-multi` — sitcom style: action in capitals, dialogue double-spaced,
 //!   every scene starts a new page with a scene letter and its cast;
 //!   about 30 seconds a page.
+//!
+//! Layouts (`layout:` in project.yaml), alternatives for some formats:
+//! - `uk-stage`   — stage plays as the BBC stage guide sets them: the name at the
+//!   left margin with a colon and the speech beside it, directions in capitals,
+//!   ACT I SCENE 1, every scene on a new page, CURTAIN.
+//! - `bbc-studio` — TV as studio scripts (BBC taped drama and sitcom): numbered
+//!   scenes, NAME: underlined over the speech, action in capitals (bracketed in
+//!   drama), a transition after every scene, END OF EPISODE.
 
 use crate::scene::{Element, Scene};
 use serde::{Deserialize, Serialize};
@@ -37,6 +45,43 @@ impl Format {
             Format::Film => "Film screenplay",
             Format::TvSingle => "TV, single-camera",
             Format::TvMulti => "TV, multi-camera",
+        }
+    }
+}
+
+/// How a format is laid out on the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Layout {
+    #[default]
+    Standard,
+    UkStage,
+    BbcStudio,
+}
+
+impl Layout {
+    /// The layout `format` is printed in: one that doesn't apply to it is standard.
+    pub fn for_format(self, format: Format) -> Layout {
+        match (self, format) {
+            (Layout::UkStage, Format::Stage) => Layout::UkStage,
+            (Layout::BbcStudio, Format::TvSingle | Format::TvMulti) => Layout::BbcStudio,
+            _ => Layout::Standard,
+        }
+    }
+    /// The layouts offered for `format`, with their names.
+    pub fn options(format: Format) -> Vec<(Layout, &'static str)> {
+        match format {
+            Format::Stage => vec![
+                (Layout::Standard, "Standard"),
+                (Layout::UkStage, "UK stage (BBC guide)"),
+            ],
+            Format::TvSingle | Format::TvMulti => {
+                vec![
+                    (Layout::Standard, "Standard"),
+                    (Layout::BbcStudio, "BBC studio (taped)"),
+                ]
+            }
+            Format::Film => vec![(Layout::Standard, "Standard")],
         }
     }
 }
@@ -104,12 +149,121 @@ pub struct Profile {
     pub double_dialogue: bool,
     /// Add (CONT'D) to cues that continue the previous speech (set from the project).
     pub auto_contd: bool,
-    /// Every scene starts a new page (multi-camera).
+    /// Every scene starts a new page (multi-camera, and the UK and studio layouts).
     pub scene_per_page: bool,
+    pub layout: Layout,
+    /// A speech too long for the rest of a page splits with (MORE)/(CONT'D);
+    /// otherwise it moves to the next page whole.
+    pub split_speeches: bool,
+    /// Scene numbers in both margins beside each heading (shooting scripts).
+    pub margin_numbers: bool,
 }
 
 impl Profile {
     pub fn for_format(format: Format) -> Profile {
+        Profile::with_layout(format, Layout::Standard)
+    }
+
+    pub fn with_layout(format: Format, layout: Layout) -> Profile {
+        let a4 = (595.0, 842.0);
+        match layout.for_format(format) {
+            Layout::Standard => {}
+            Layout::UkStage => {
+                return Profile {
+                    format,
+                    page_w: a4.0,
+                    page_h: a4.1,
+                    left: 90.0,
+                    top: 72.0,
+                    cols: 58,
+                    lines_per_page: 58,
+                    minutes_per_page: 1.0,
+                    heading: Slot {
+                        caps: true,
+                        style: Style::Bold,
+                        ..slot(0, 58)
+                    },
+                    action: Slot {
+                        caps: true,
+                        ..slot(20, 38)
+                    },
+                    cue: Slot {
+                        caps: true,
+                        ..slot(0, 15)
+                    },
+                    paren: slot(16, 42),
+                    dialogue: slot(16, 42),
+                    lyric: Slot {
+                        style: Style::Italic,
+                        ..slot(16, 42)
+                    },
+                    transition: Slot {
+                        caps: true,
+                        ..slot(20, 38)
+                    },
+                    centered: Slot {
+                        align: Align::Center,
+                        ..slot(0, 58)
+                    },
+                    double_dialogue: false,
+                    scene_per_page: true,
+                    auto_contd: false,
+                    layout: Layout::UkStage,
+                    split_speeches: false,
+                    margin_numbers: false,
+                };
+            }
+            Layout::BbcStudio => {
+                // Wide left margin, for the camera and sound cues added in the studio.
+                let sitcom = format == Format::TvMulti;
+                return Profile {
+                    format,
+                    page_w: a4.0,
+                    page_h: a4.1,
+                    left: 144.0,
+                    top: 72.0,
+                    cols: 55,
+                    lines_per_page: 58,
+                    minutes_per_page: if sitcom { 0.5 } else { 1.0 },
+                    heading: Slot {
+                        caps: true,
+                        style: Style::Bold,
+                        underline: true,
+                        ..slot(0, 55)
+                    },
+                    action: Slot {
+                        caps: true,
+                        ..if sitcom { slot(7, 34) } else { slot(14, 38) }
+                    },
+                    cue: Slot {
+                        caps: true,
+                        style: Style::Bold,
+                        underline: true,
+                        ..slot(0, 55)
+                    },
+                    paren: slot(0, if sitcom { 48 } else { 55 }),
+                    dialogue: slot(0, if sitcom { 48 } else { 55 }),
+                    lyric: Slot {
+                        style: Style::Italic,
+                        ..slot(4, 44)
+                    },
+                    transition: Slot {
+                        caps: true,
+                        ..slot(0, 55)
+                    },
+                    centered: Slot {
+                        align: Align::Center,
+                        ..slot(0, 55)
+                    },
+                    double_dialogue: sitcom,
+                    scene_per_page: true,
+                    auto_contd: false,
+                    layout: Layout::BbcStudio,
+                    split_speeches: false,
+                    margin_numbers: false,
+                };
+            }
+        }
         let letter = (612.0, 792.0);
         let a4 = (595.0, 842.0);
         match format {
@@ -158,6 +312,9 @@ impl Profile {
                 double_dialogue: false,
                 scene_per_page: false,
                 auto_contd: false,
+                layout: Layout::Standard,
+                split_speeches: true,
+                margin_numbers: false,
             },
             Format::Film | Format::TvSingle | Format::TvMulti => {
                 let multi = format == Format::TvMulti;
@@ -201,6 +358,9 @@ impl Profile {
                     double_dialogue: multi,
                     scene_per_page: multi,
                     auto_contd: false,
+                    layout: Layout::Standard,
+                    split_speeches: true,
+                    margin_numbers: false,
                 }
             }
         }
@@ -215,6 +375,8 @@ pub struct Line {
     pub col: usize,
     pub style: Style,
     pub underline: bool,
+    /// A scene number printed in both margins beside this line (shooting scripts).
+    pub number: Option<String>,
 }
 
 impl Line {
@@ -224,6 +386,7 @@ impl Line {
             col: 0,
             style: Style::Plain,
             underline: false,
+            number: None,
         }
     }
     pub fn is_blank(&self) -> bool {
@@ -286,6 +449,7 @@ fn set(text: &str, s: &Slot) -> Vec<Line> {
                 col,
                 style: s.style,
                 underline: s.underline,
+                number: None,
             }
         })
         .collect()
@@ -432,6 +596,104 @@ fn speech_lines(els: &[Element], s: &SpeechSlots, double: bool, contd: bool) -> 
     lines
 }
 
+/// A speech in the UK stage or BBC studio layout: parentheticals run into the
+/// speech in capitals, "(PAUSE) Well…". UK stage: `NAME:` at the left margin
+/// with the speech beside it (left out when the character simply carries on
+/// after a direction). Studio: `NAME:` underlined, the speech below it.
+fn inline_speech(els: &[Element], p: &Profile, show_name: bool) -> Vec<Line> {
+    let (name, ext) = match &els[0] {
+        Element::Cue(c) => (
+            c.name.to_uppercase(),
+            c.extension.clone().filter(|e| !e.to_uppercase().contains("CONT")),
+        ),
+        _ => (String::new(), None),
+    };
+    let mut paras: Vec<(String, Slot)> = Vec::new();
+    let mut pending = String::new();
+    for el in &els[1..] {
+        match el {
+            Element::Parenthetical(t) => {
+                pending.push_str(&t.to_uppercase());
+                pending.push(' ');
+            }
+            Element::Dialogue(t) => paras.push((format!("{pending}{t}"), p.dialogue)),
+            Element::Lyric(t) => paras.push((t.clone(), p.lyric)),
+            Element::LyricBreak => paras.push((String::new(), p.lyric)),
+            Element::SongStart(song) => {
+                let label = match &song.title {
+                    Some(t) => format!("SONG: \u{201c}{t}\u{201d}"),
+                    None => "SONG".to_string(),
+                };
+                paras.push((
+                    label,
+                    Slot {
+                        underline: true,
+                        ..p.lyric
+                    },
+                ));
+            }
+            _ => {}
+        }
+        if !matches!(el, Element::Parenthetical(_)) {
+            pending.clear();
+        }
+    }
+    if !pending.trim().is_empty() {
+        paras.push((pending.trim_end().to_string(), p.dialogue));
+    }
+    let mut lines: Vec<Line> = Vec::new();
+    if p.layout == Layout::UkStage {
+        let label = match &ext {
+            Some(e) => format!("{name} ({e}):"),
+            None => format!("{name}:"),
+        };
+        let mut first = show_name;
+        for (t, s) in &paras {
+            if t.is_empty() {
+                lines.push(Line::blank());
+                continue;
+            }
+            let mut set_lines = set(t, s);
+            if std::mem::take(&mut first) {
+                if label.chars().count() < s.indent {
+                    // The name and the first line of the speech share a line.
+                    let l0 = &mut set_lines[0];
+                    l0.text = format!("{label:<w$}{}", l0.text, w = s.indent);
+                    l0.col = 0;
+                } else {
+                    lines.extend(set(&label, &Slot { width: p.cols, ..p.cue }));
+                }
+            }
+            lines.extend(set_lines);
+        }
+        if lines.is_empty() && show_name {
+            lines.extend(set(&label, &Slot { width: p.cols, ..p.cue }));
+        }
+    } else {
+        let label = match &ext {
+            Some(e) => format!("{name}: ({e})"),
+            None => format!("{name}:"),
+        };
+        lines.extend(set(&label, &p.cue));
+        for (t, s) in &paras {
+            if t.is_empty() {
+                lines.push(Line::blank());
+                continue;
+            }
+            let mut new = set(t, s);
+            if p.double_dialogue {
+                if lines.len() > 1 && !lines.last().unwrap().is_blank() {
+                    lines.push(Line::blank());
+                }
+                new = new.into_iter().flat_map(|l| [l, Line::blank()]).collect();
+                new.pop();
+            }
+            lines.extend(new);
+        }
+    }
+    lines
+}
+
 /// Two speeches side by side (dual dialogue): each in half the width.
 fn dual_lines(left: &[Element], right: &[Element], p: &Profile) -> Vec<Line> {
     let half = p.cols.saturating_sub(2) / 2;
@@ -475,6 +737,7 @@ fn dual_lines(left: &[Element], right: &[Element], p: &Profile) -> Vec<Line> {
                 col: 0,
                 style: Style::Plain,
                 underline: false,
+                number: None,
             }
         })
         .collect()
@@ -482,6 +745,12 @@ fn dual_lines(left: &[Element], right: &[Element], p: &Profile) -> Vec<Line> {
 
 /// Lay out one scene's body as blocks.
 pub fn scene_blocks(scene: &Scene, p: &Profile) -> Vec<Block> {
+    scene_blocks_numbered(scene, p, &mut 0)
+}
+
+/// As `scene_blocks`, numbering scene headings on from `counter` (studio
+/// layouts and shooting scripts number every heading; an explicit `#12#` wins).
+pub fn scene_blocks_numbered(scene: &Scene, p: &Profile, counter: &mut u32) -> Vec<Block> {
     let normal = SpeechSlots {
         cue: p.cue,
         paren: p.paren,
@@ -491,7 +760,7 @@ pub fn scene_blocks(scene: &Scene, p: &Profile) -> Vec<Block> {
     let mut blocks: Vec<Block> = Vec::new();
     let mut gap = 0usize;
     let mut last_speech: Option<(usize, &[Element])> = None; // block index, elements
-    let contd: Vec<usize> = if p.auto_contd {
+    let contd: Vec<usize> = if p.auto_contd || p.layout == Layout::UkStage {
         crate::scene::continued_cues(&scene.body)
     } else {
         Vec::new()
@@ -524,12 +793,13 @@ pub fn scene_blocks(scene: &Scene, p: &Profile) -> Vec<Block> {
                     None => {
                         let (cue, _) = cue_text(els, false);
                         let continues = contd.contains(&index_of(els));
-                        push(
-                            &mut blocks,
-                            &mut gap,
-                            BlockKind::Speech { cue },
-                            speech_lines(els, &normal, p.double_dialogue, continues),
-                        );
+                        let lines = match p.layout {
+                            Layout::Standard => speech_lines(els, &normal, p.double_dialogue, continues),
+                            // UK stage: a speech carried on after a direction doesn't repeat the name.
+                            Layout::UkStage => inline_speech(els, p, !continues),
+                            Layout::BbcStudio => inline_speech(els, p, true),
+                        };
+                        push(&mut blocks, &mut gap, BlockKind::Speech { cue }, lines);
                         last_speech = Some((blocks.len() - 1, els));
                     }
                 }
@@ -538,11 +808,25 @@ pub fn scene_blocks(scene: &Scene, p: &Profile) -> Vec<Block> {
                 last_speech = None;
                 match el {
                     Element::SceneHeading(h) => {
-                        let text = match &h.number {
-                            Some(n) => format!("{n}  {}", h.text),
-                            None => h.text.clone(),
+                        *counter = match h.number.as_deref().map(str::parse::<u32>) {
+                            Some(Ok(n)) => n,
+                            _ => *counter + 1,
                         };
-                        push(&mut blocks, &mut gap, BlockKind::Heading, set(&text, &p.heading));
+                        let n = h.number.clone().unwrap_or_else(|| counter.to_string());
+                        let (text, margin) = match p.layout {
+                            Layout::BbcStudio if p.format == Format::TvMulti => {
+                                (format!("SCENE {n}. {}", h.text), None)
+                            }
+                            Layout::BbcStudio => (format!("SC{n}. {}", h.text), None),
+                            _ if p.margin_numbers => (h.text.clone(), Some(n)),
+                            _ => match &h.number {
+                                Some(n) => (format!("{n}  {}", h.text), None),
+                                None => (h.text.clone(), None),
+                            },
+                        };
+                        let mut lines = set(&text, &p.heading);
+                        lines[0].number = margin;
+                        push(&mut blocks, &mut gap, BlockKind::Heading, lines);
                     }
                     Element::Direction { text, .. } => {
                         push(&mut blocks, &mut gap, BlockKind::Action, set(text, &p.action))
@@ -590,6 +874,25 @@ pub fn scene_blocks(scene: &Scene, p: &Profile) -> Vec<Block> {
                     Element::Blank | Element::Cue(_) | Element::SongEnd => {}
                 }
             }
+        }
+    }
+    // Studio drama: each run of action is enclosed in square brackets.
+    if p.layout == Layout::BbcStudio && p.format == Format::TvSingle {
+        let mut i = 0;
+        while i < blocks.len() {
+            if blocks[i].kind == BlockKind::Action && !blocks[i].lines.is_empty() {
+                let start = i;
+                while blocks.get(i + 1).is_some_and(|b| b.kind == BlockKind::Action) {
+                    i += 1;
+                }
+                let first = &mut blocks[start].lines[0];
+                first.text = format!("[{}", first.text);
+                first.col = first.col.saturating_sub(1);
+                if let Some(last) = blocks[i].lines.last_mut() {
+                    last.text.push(']');
+                }
+            }
+            i += 1;
         }
     }
     blocks
@@ -686,7 +989,7 @@ pub fn paginate(blocks: &[Block], p: &Profile) -> Vec<Page> {
                     continue;
                 }
             }
-            BlockKind::Speech { cue } if !at_top => {
+            BlockKind::Speech { cue } if !at_top && p.split_speeches => {
                 // Cue + at least two lines here, (MORE) at the foot; at least two lines carried over.
                 let body = &b.lines[1..];
                 let fit = avail.saturating_sub(2); // cue line + (MORE)
@@ -705,6 +1008,7 @@ pub fn paginate(blocks: &[Block], p: &Profile) -> Vec<Page> {
                         col: p.cue.indent,
                         style: Style::Plain,
                         underline: false,
+                        number: None,
                     });
                     let mut next: Page = set(&format!("{cue} (CONT'D)"), &p.cue);
                     let rest: Vec<Line> = body[take..].iter().skip_while(|l| l.is_blank()).cloned().collect();
@@ -913,5 +1217,70 @@ mod tests {
         assert_eq!(eighths_label(13), "1 5/8");
         assert_eq!(eighths_label(3), "3/8");
         assert_eq!(eighths_label(16), "2");
+    }
+
+    fn texts(blocks: &[Block]) -> Vec<String> {
+        blocks
+            .iter()
+            .flat_map(|b| b.lines.iter().map(|l| format!("{}{}", " ".repeat(l.col), l.text)))
+            .collect()
+    }
+
+    #[test]
+    fn uk_stage_puts_the_name_beside_the_speech() {
+        let p = Profile::with_layout(Format::Stage, Layout::UkStage);
+        let b = scene_blocks(
+            &scene("Rain.\n\nHETTIE\n(quietly)\nHello.\n\nShe turns.\n\nHETTIE\nAgain.\n"),
+            &p,
+        );
+        let t = texts(&b);
+        assert_eq!(t[0], format!("{}RAIN.", " ".repeat(20)));
+        assert_eq!(t[1], "HETTIE:         (QUIETLY) Hello.");
+        // Carrying on after a direction: no name again.
+        assert_eq!(t[3], format!("{}Again.", " ".repeat(16)));
+        assert!(!p.split_speeches && p.scene_per_page);
+        // The layout only applies to its format.
+        assert_eq!(
+            Profile::with_layout(Format::Film, Layout::UkStage).layout,
+            Layout::Standard
+        );
+    }
+
+    #[test]
+    fn studio_drama_numbers_scenes_and_brackets_action() {
+        let p = Profile::with_layout(Format::TvSingle, Layout::BbcStudio);
+        let mut n = 4;
+        let b = scene_blocks_numbered(
+            &scene("INT. HALL - DAY\n\nRain.\n\nThunder.\n\nNELL (V.O.)\nHi.\n"),
+            &p,
+            &mut n,
+        );
+        let t = texts(&b);
+        assert_eq!(t[0], "SC5. INT. HALL - DAY");
+        assert_eq!(t[1], format!("{}[RAIN.", " ".repeat(13)));
+        assert_eq!(t[2], format!("{}THUNDER.]", " ".repeat(14)));
+        assert_eq!(t[3], "NELL: (V.O.)");
+        assert_eq!(n, 5);
+        let m = Profile::with_layout(Format::TvMulti, Layout::BbcStudio);
+        assert_eq!(
+            texts(&scene_blocks(&scene("INT. HALL - DAY\n"), &m))[0],
+            "SCENE 1. INT. HALL - DAY"
+        );
+    }
+
+    #[test]
+    fn shooting_scripts_number_headings_in_the_margins() {
+        let mut p = Profile::for_format(Format::Film);
+        p.margin_numbers = true;
+        let b = scene_blocks(
+            &scene("INT. A - DAY\n\nX.\n\nINT. B - DAY #7#\n\nY.\n\nINT. C - DAY\n"),
+            &p,
+        );
+        let nums: Vec<Option<String>> = b
+            .iter()
+            .filter(|b| b.kind == BlockKind::Heading)
+            .map(|b| b.lines[0].number.clone())
+            .collect();
+        assert_eq!(nums, vec![Some("1".into()), Some("7".into()), Some("8".into())]);
     }
 }

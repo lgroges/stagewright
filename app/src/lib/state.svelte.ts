@@ -655,7 +655,7 @@ class AppState {
   }
 
   /** Set a project option in project.yaml (shared when co-writing). */
-  async setOption(name: "auto_contd" | "shooting_script", value: unknown) {
+  async setOption(name: "auto_contd" | "shooting_script" | "layout", value: unknown) {
     await this.guard(async () => {
       if (this.collab) {
         const text = this.collab.fileText("project.yaml") ?? "";
@@ -665,6 +665,8 @@ class AppState {
       } else {
         this.project = await api.setOption(name, value);
       }
+      // Some checks depend on these (the studio layout, a shooting script).
+      this.checksVersion++;
     });
   }
 

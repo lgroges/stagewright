@@ -139,6 +139,21 @@
                 </label>
               {/if}
               <button class="ghost" role="menuitem" onclick={() => doExport("pdf")}>PDF ({app.project.format_label})</button>
+              {#if app.project.layouts.length > 1}
+                <label class="ep" title="How the PDF is laid out. Fountain exports are always standard.">
+                  <span>Layout</span>
+                  <select
+                    value={app.project.layout}
+                    onchange={(e) => {
+                      const v = e.currentTarget.value;
+                      void app.setOption("layout", v === "standard" ? null : v);
+                    }}
+                    data-testid="layout"
+                  >
+                    {#each app.project.layouts as l}<option value={l.id}>{l.name}</option>{/each}
+                  </select>
+                </label>
+              {/if}
               <button class="ghost" role="menuitem" onclick={() => doExport("fountain")}>Fountain (.fountain)</button>
               <label class="opt" title="When a character speaks again after action, in the same scene. Shown faintly in the editor; printed in exports.">
                 <input

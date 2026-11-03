@@ -137,7 +137,7 @@ function check(name, ok, detail = "") {
 
     // 5. Export (episode 1)
     await page.click('[data-testid="export"]');
-    await page.selectOption(".menu select", "1");
+    await page.selectOption(".menu label.ep:first-child select", "1");
     const [pdf] = await Promise.all([page.waitForEvent("download"), page.click(".menu button:has-text('PDF')")]);
     const pdfPath = path.join(tmp, pdf.suggestedFilename());
     await pdf.saveAs(pdfPath);
@@ -154,8 +154,8 @@ function check(name, ok, detail = "") {
       check("PDF opens with FADE IN: and closes the show", /FADE IN:/.test(pdfText) && /FADE OUT\.\s+END OF SHOW/.test(pdfText), pdfText.slice(-300));
     }
     await page.click('[data-testid="export"]');
-    check("export defaults to the open scene's episode", (await page.locator(".menu select").inputValue()) === "2");
-    await page.selectOption(".menu select", "1");
+    check("export defaults to the open scene's episode", (await page.locator(".menu label.ep:first-child select").inputValue()) === "2");
+    await page.selectOption(".menu label.ep:first-child select", "1");
     const [fnt] = await Promise.all([page.waitForEvent("download"), page.click(".menu button:has-text('Fountain')")]);
     const fntPath = path.join(tmp, fnt.suggestedFilename());
     await fnt.saveAs(fntPath);

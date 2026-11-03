@@ -7,6 +7,20 @@ change, the cursor, is listed under 0.3.0.)
 
 ## Unreleased
 
+- **Layouts for the PDF**, chosen under Export:
+  - **UK stage**, for stage plays: the name at the left margin with a colon and the
+    speech beside it, directions in capitals, ACT I SCENE 1 on every scene's page,
+    CURTAIN at the end of each act.
+  - **BBC studio**, for TV (taped drama and sitcom): numbered scenes on new pages,
+    NAME: underlined over the speech, action in capitals (bracketed in drama), CUT TO:
+    after every scene, END OF EPISODE.
+- **Shooting scripts print scene numbers** in both margins beside every heading, and
+  in Fountain exports.
+- New checks: the same word twice in a row ("are are"), in action and directions; and
+  in film and TV, a character introduced without an age, like (30s).
+- A parenthetical wrapped onto two or three lines ("(in Russian;" / "English
+  subtitles)") is read as one, not as an unclosed bracket.
+
 ## 0.5.0 (2026-11-03)
 
 - **Comments**, as in Google Docs. Select text and press **Comment** (Ctrl+Alt+M):

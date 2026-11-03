@@ -3,7 +3,7 @@
 //   cargo build -p stagewright && npm run build && node e2e/layout.cjs
 
 const { chromium } = require("playwright");
-const { spawn } = require("node:child_process");
+const { spawn, execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -109,6 +109,23 @@ async function open(browser, fixture) {
     await p.waitForSelector("aside.tree");
     check("Ctrl+\\ shows it again", true);
     check("no browser errors (series)", s2.errors.length === 0, s2.errors.join(" | "));
+
+    // ---- Layouts: the BBC studio layout for TV, from the Export menu
+    await p.click('[data-testid="export"]');
+    await p.selectOption('[data-testid="layout"]', "bbc-studio");
+    await p.waitForFunction(() => document.querySelector('[data-testid="layout"]')?.value === "bbc-studio");
+    const [pdf] = await Promise.all([p.waitForEvent("download"), p.click(".menu button:has-text('PDF')")]);
+    let text = null;
+    try {
+      text = execFileSync("pdftotext", ["-layout", await pdf.path(), "-"]).toString();
+    } catch {
+      /* no pdftotext here: skip the text checks */
+    }
+    if (text !== null) {
+      check("studio scenes are numbered, names have colons, action is bracketed", /SC1\. INT\./.test(text) && /DANA:/.test(text) && /\[A GRANDFATHER CLOCK/.test(text), text.slice(0, 600));
+      check("and the episode ends END OF EPISODE", /END OF EPISODE/.test(text));
+    }
+    check("the layout is saved in project.yaml", /layout: "?bbc-studio"?/.test(fs.readFileSync(path.join(s2.project, "project.yaml"), "utf8")));
   } catch (e) {
     console.error(e);
     failures++;

@@ -1189,3 +1189,26 @@ fn comments_are_kept_in_comments_yaml() {
     let dup = dispatch(&mut ws, "comment_edit_text", json!({"text": on_disk, "op": add["op"]}));
     assert_eq!(dup.unwrap_err().code, "bad_args");
 }
+
+#[test]
+fn layouts_follow_the_format() {
+    let (_t, mut ws) = fixture("tv-series-sample");
+    let v = call(&mut ws, "project_view", json!({}));
+    assert_eq!(v["layout"], "standard");
+    assert_eq!(v["layouts"].as_array().unwrap().len(), 2);
+    let v = call(&mut ws, "set_option", json!({"name": "layout", "value": "bbc-studio"}));
+    assert_eq!(v["layout"], "bbc-studio");
+    // An unknown layout is refused; one for another format is ignored.
+    let bad = dispatch(&mut ws, "set_option", json!({"name": "layout", "value": "nonsense"}));
+    assert_eq!(bad.unwrap_err().code, "invalid_yaml");
+    let v = call(&mut ws, "set_option", json!({"name": "layout", "value": "uk-stage"}));
+    assert_eq!(v["layout"], "standard", "uk-stage doesn't apply to TV");
+    let (_s, mut film) = fixture("film-sample");
+    assert_eq!(
+        call(&mut film, "project_view", json!({}))["layouts"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+}

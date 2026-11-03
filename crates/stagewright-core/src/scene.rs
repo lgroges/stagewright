@@ -357,6 +357,16 @@ fn parse_song_start(line: &str) -> SongStart {
     }
 }
 
+/// A parenthetical opened on line `i` closes within the next three lines of
+/// the speech (so it was wrapped by hand, not left unclosed).
+fn closes_soon(lines: &[&str], i: usize) -> bool {
+    lines[i + 1..]
+        .iter()
+        .take(3)
+        .take_while(|l| !l.is_empty() && !l.starts_with('('))
+        .any(|l| l.ends_with(')'))
+}
+
 pub fn parse_body(src: &str) -> Vec<Element> {
     let lines: Vec<&str> = if src.is_empty() {
         Vec::new()
@@ -365,12 +375,15 @@ pub fn parse_body(src: &str) -> Vec<Element> {
     };
     let mut out = Vec::with_capacity(lines.len());
     let mut in_speech = false;
+    // Inside a parenthetical wrapped onto more lines: "(in Russian;" / "English subtitles)".
+    let mut in_paren = false;
     for (i, &line) in lines.iter().enumerate() {
         let prev_blank = i == 0 || lines[i - 1].is_empty();
         let next_nonblank = lines.get(i + 1).is_some_and(|l| !l.is_empty());
 
         let el = if line.is_empty() {
             in_speech = false;
+            in_paren = false;
             Element::Blank
         } else if line == "~ END SONG" {
             Element::SongEnd
@@ -413,7 +426,9 @@ pub fn parse_body(src: &str) -> Vec<Element> {
         } else if prev_blank && next_nonblank && is_cue_text(line) {
             in_speech = true;
             Element::Cue(parse_cue(line, false))
-        } else if in_speech && line.starts_with('(') && line.ends_with(')') {
+        } else if in_speech && (in_paren || (line.starts_with('(') && (line.ends_with(')') || closes_soon(&lines, i))))
+        {
+            in_paren = !line.ends_with(')');
             Element::Parenthetical(line.to_string())
         } else if in_speech {
             Element::Dialogue(line.to_string())
@@ -616,5 +631,24 @@ mod tests {
     #[test]
     fn rejects_crlf() {
         assert!(matches!(Scene::parse("---\r\nid: x\r\n---\r\n"), Err(ParseError::CrLf)));
+    }
+
+    #[test]
+    fn parentheticals_wrapped_onto_two_lines() {
+        let b = parse_body("NELL\n(in Russian;\nEnglish subtitles)\nHi.\n\nTOM\n(never closed\nSo this is dialogue.");
+        let kinds: Vec<&str> = b.iter().map(Element::kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                "cue",
+                "parenthetical",
+                "parenthetical",
+                "dialogue",
+                "blank",
+                "cue",
+                "dialogue",
+                "dialogue"
+            ]
+        );
     }
 }

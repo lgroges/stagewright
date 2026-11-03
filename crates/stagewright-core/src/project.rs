@@ -80,9 +80,17 @@ pub struct ProjectMeta {
     /// spec script.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub shooting_script: bool,
+    /// How exports lay the script out: `uk-stage` for stage plays, `bbc-studio`
+    /// for TV; unset, the standard layout.
+    #[serde(default, skip_serializing_if = "is_standard")]
+    pub layout: crate::layout::Layout,
     /// Script check settings, e.g. `checks: {off: [contd-mismatch]}`.
     #[serde(default)]
     pub checks: ChecksConfig,
+}
+
+fn is_standard(l: &crate::layout::Layout) -> bool {
+    *l == crate::layout::Layout::Standard
 }
 
 impl ProjectMeta {

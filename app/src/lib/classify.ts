@@ -60,9 +60,20 @@ export function isTransitionText(line: string): boolean {
   return t.endsWith("TO:") && /[A-Z]/.test(t) && !LOWER.test(t);
 }
 
+/** A parenthetical opened on line `i` closes within the next three lines of the speech. Mirrors scene.rs. */
+function closesSoon(lines: readonly string[], i: number): boolean {
+  for (const l of lines.slice(i + 1, i + 4)) {
+    if (l === "" || l.startsWith("(")) return false;
+    if (l.endsWith(")")) return true;
+  }
+  return false;
+}
+
 export function classifyLines(lines: readonly string[]): Kind[] {
   const out: Kind[] = new Array(lines.length);
   let inSpeech = false;
+  // Inside a parenthetical wrapped onto more lines: "(in Russian;" / "English subtitles)".
+  let inParen = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const prevBlank = i === 0 || lines[i - 1] === "";
@@ -70,6 +81,7 @@ export function classifyLines(lines: readonly string[]): Kind[] {
     let k: Kind;
     if (line === "") {
       inSpeech = false;
+      inParen = false;
       k = "blank";
     } else if (line === "~ END SONG") {
       k = "song_end";
@@ -103,7 +115,8 @@ export function classifyLines(lines: readonly string[]): Kind[] {
     } else if (prevBlank && nextNonblank && isCueText(line)) {
       inSpeech = true;
       k = "cue";
-    } else if (inSpeech && line.startsWith("(") && line.endsWith(")")) {
+    } else if (inSpeech && (inParen || (line.startsWith("(") && (line.endsWith(")") || closesSoon(lines, i))))) {
+      inParen = !line.endsWith(")");
       k = "parenthetical";
     } else if (inSpeech) {
       k = "dialogue";

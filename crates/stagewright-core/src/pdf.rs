@@ -15,6 +15,8 @@ pub struct PdfSettings {
     pub page_h: f32,
     pub left: f32,
     pub top: f32,
+    /// Columns in the text area (for scene numbers in the right margin).
+    pub cols: usize,
     pub title: String,
     pub author: String,
 }
@@ -128,6 +130,18 @@ pub fn render(pages: &[PdfPage], s: &PdfSettings) -> Vec<u8> {
                 Style::Italic => "F3",
             };
             text_at(&mut stream, font, x, y, &line.text);
+            if let Some(n) = &line.number {
+                // Shooting scripts: the scene number in both margins.
+                let w = n.chars().count() as f32 * CHAR_W;
+                text_at(
+                    &mut stream,
+                    "F1",
+                    s.left - 0.75 * 72.0 + (0.5 * 72.0 - w).max(0.0),
+                    y,
+                    n,
+                );
+                text_at(&mut stream, "F1", s.left + s.cols as f32 * CHAR_W + 0.25 * 72.0, y, n);
+            }
             if line.underline {
                 let w = line.text.chars().count() as f32 * CHAR_W;
                 rules.push_str(&format!("{x:.2} {:.2} m {:.2} {:.2} l S\n", y - 2.0, x + w, y - 2.0));
@@ -185,6 +199,7 @@ mod tests {
                 col: 0,
                 style: Style::Plain,
                 underline: true,
+                number: Some("1".into()),
             }],
             number: None,
         }];
@@ -195,6 +210,7 @@ mod tests {
                 page_h: 792.0,
                 left: 108.0,
                 top: 72.0,
+                cols: 60,
                 title: "T".into(),
                 author: "A".into(),
             },

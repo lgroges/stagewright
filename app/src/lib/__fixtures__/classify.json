@@ -504,7 +504,14 @@
     "direction",
     "blank",
     "direction",
-    "direction"
+    "direction",
+    "blank",
+    "cue",
+    "parenthetical",
+    "parenthetical",
+    "dialogue",
+    "dialogue",
+    "dialogue"
   ],
   "screenplay.scene": [
     "scene_heading",

@@ -7,6 +7,8 @@ change, the cursor, is listed under 0.3.0.)
 
 ## Unreleased
 
+## 0.6.0 (2026-11-03)
+
 - **Layouts for the PDF**, chosen under Export:
   - **UK stage**, for stage plays: the name at the left margin with a colon and the
     speech beside it, directions in capitals, ACT I SCENE 1 on every scene's page,

@@ -102,6 +102,9 @@ fn uk_stage_blocks(p: &Project, prof: &Profile) -> Vec<Block> {
                 format!("{act:<16}SCENE {}", si + 1)
             };
             let mut head = text_block(&label, &prof.heading, 0);
+            // Set by hand: wrapping would close up the gap between act and scene.
+            head.lines.truncate(1);
+            head.lines[0].text = label.clone();
             head.kind = BlockKind::Title;
             head.page_break = !out.is_empty();
             out.push(head);

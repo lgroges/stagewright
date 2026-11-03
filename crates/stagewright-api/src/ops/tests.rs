@@ -1212,3 +1212,19 @@ fn layouts_follow_the_format() {
         1
     );
 }
+
+#[test]
+fn uk_stage_pages_head_each_scene_with_act_and_scene() {
+    let (t, mut ws) = fixture("stage-sample");
+    call(&mut ws, "set_option", json!({"name": "layout", "value": "uk-stage"}));
+    let p = stagewright_core::Project::load(t.path()).unwrap();
+    let lines: Vec<String> = stagewright_core::export::pages(&p, None)
+        .1
+        .iter()
+        .flatten()
+        .map(|l| l.text.clone())
+        .collect();
+    assert!(lines.contains(&format!("{:<16}SCENE 1", "ACT I")), "{lines:?}");
+    assert!(lines.iter().any(|l| l.starts_with("HETTIE:")));
+    assert_eq!(lines.iter().filter(|l| *l == "CURTAIN").count(), 3);
+}

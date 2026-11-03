@@ -8,7 +8,7 @@ default-members = ["crates/stagewright-core", "crates/stagewright-cli", "crates/
 edition = "2021"
 # The one version number for every crate and the desktop app.
 # Change it with `node scripts/release.mjs <version>`, not by hand.
-version = "0.6.0"
+version = "0.7.0"
 license = "UNLICENSED"
 
 # The grammar checker (harper-core and its dependencies) is slow unoptimised:

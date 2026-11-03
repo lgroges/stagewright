@@ -7,6 +7,8 @@ change, the cursor, is listed under 0.3.0.)
 
 ## Unreleased
 
+## 0.7.0 (2026-11-03)
+
 - **Grammar check** in action and stage directions, by Harper, which runs on your
   computer (nothing is sent anywhere): "its"/"it's", "could of", agreement and so on,
   with a one-click fix where there is one. Plus British usages it misses: "has been

@@ -94,5 +94,5 @@ capitals, one blank line between paragraphs, and comments only ever in
 `comments.yaml`. Hand back the changed files with a short note of what changed, and
 put them in his folder only when he asks.
 
-Conversion (his St Augustine play, co-written with Marco Biasioli) is private: never
-publish or share it.
+Liam's scripts are unpublished work, some co-written: don't publish or share them
+anywhere unless he asks.

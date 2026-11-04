@@ -7,13 +7,23 @@ change, the cursor, is listed under 0.3.0.)
 
 ## Unreleased
 
-- The script check is about four times faster as you type in long projects (only who
-  has been introduced is followed through the earlier scenes), and grammar results
-  are remembered for paragraphs that haven't changed.
-- Saving a scene reads the project once, not twice.
+- **Comments in Production**: every comment in the project (or the episode shown),
+  scene by scene, with who wrote it and how many replies. Click one to open its scene
+  with the passage selected and the comments panel open. Resolved ones are hidden
+  unless you ask for them.
+- **Story days and times in BBC studio scripts**: in the studio layout, typing a
+  scene heading's time offers the story day (DAY 2, NIGHT 2, then the next day). The
+  check notes a heading with no story day, a day or time earlier than the scene
+  before (unless it's a flashback), a time written oddly ("[9:20]" becomes "[09.20]",
+  in one click), and DAY or NIGHT against the clock (the guide's rule: day begins at
+  06.00, night at 20.00). Story days start again each episode.
 
 ## 0.7.0 (2026-11-03)
 
+- The script check is about four times faster as you type in long projects (only who
+  has been introduced is followed through the earlier scenes), and grammar results
+  are remembered for paragraphs that haven't changed. Saving a scene reads the
+  project once, not twice.
 - **Grammar check** in action and stage directions, by Harper, which runs on your
   computer (nothing is sent anywhere): "its"/"it's", "could of", agreement and so on,
   with a one-click fix where there is one. Plus British usages it misses: "has been

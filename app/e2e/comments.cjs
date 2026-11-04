@@ -57,6 +57,15 @@ const shots = process.env.SHOTS_DIR;
     await until(async () => (await thread.locator(".msg").count()) === 2, 3000, "the reply to show");
     check("a reply is added to the thread", true);
 
+    // 2b. Production lists it; clicking it brings back the script with the passage selected
+    await page.click('nav[aria-label="Views"] >> text=Production');
+    const listed = page.locator('[data-testid="production-comments"] button.link').first();
+    await listed.waitFor();
+    check("Production lists the comment", (await listed.textContent()).includes("Which charts? Name one.") && (await listed.textContent()).includes("1 reply"));
+    await listed.click();
+    await page.waitForFunction((q) => window.__swSelection?.() === q, quote, { timeout: 5000 });
+    check("and clicking it selects its passage in the script", true);
+
     // 3. Edit before the passage: the highlight follows and the anchor is stored again
     await page.click(".cm-content");
     await page.keyboard.press("Control+Home");

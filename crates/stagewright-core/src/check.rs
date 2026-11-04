@@ -99,6 +99,8 @@ pub const CHECKS: &[(&str, &str)] = &[
         "A scene heading that doesn't name the place (A CHURCHYARD)",
     ),
     ("scene-long", "A film or TV scene longer than 3 pages"),
+    ("story-day", "A studio scene heading with no story day (DAY 1, NIGHT 1)"),
+    ("story-time", "Story days and times out of order, or written oddly"),
     ("title-page", "Title page details missing"),
 ];
 
@@ -343,6 +345,68 @@ pub struct Context {
     pub layout: crate::layout::Layout,
     /// The English the grammar check expects.
     pub english: crate::grammar::English,
+    /// The story day and time of the last studio heading (BBC studio layout),
+    /// carried from scene to scene; reset at each episode.
+    pub story: Option<StoryTime>,
+}
+
+/// "DAY 2 [09.20]" in a studio scene heading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct StoryTime {
+    pub day: Option<u32>,
+    pub night: bool,
+    /// Minutes past midnight, from "[09.20]".
+    pub minutes: Option<u32>,
+}
+
+impl StoryTime {
+    /// Read the story day and time from a heading's time part, and the clock
+    /// as written ("[9:20]"), if there is one.
+    pub fn parse(time: &str) -> (StoryTime, Option<String>) {
+        let up = time.to_uppercase();
+        let words: Vec<&str> = up.split_whitespace().collect();
+        let mut st = StoryTime::default();
+        for w in words.windows(2) {
+            if (w[0] == "DAY" || w[0] == "NIGHT")
+                && let Ok(n) = w[1].parse::<u32>()
+            {
+                st.day = Some(n);
+                st.night = w[0] == "NIGHT";
+            }
+        }
+        // A clock in brackets: [09.20], [9.20], [09:20], (09.20).
+        let mut clock = None;
+        for (open, close) in [('[', ']'), ('(', ')')] {
+            if let (Some(a), Some(b)) = (time.find(open), time.rfind(close))
+                && b > a
+            {
+                let inner = &time[a + 1..b];
+                let parts: Vec<&str> = inner.split(['.', ':']).collect();
+                if let [h, m] = parts.as_slice()
+                    && let (Ok(h), Ok(m)) = (h.trim().parse::<u32>(), m.trim().parse::<u32>())
+                    && h < 24
+                    && m < 60
+                {
+                    st.minutes = Some(h * 60 + m);
+                    clock = Some(time[a..=b].to_string());
+                    break;
+                }
+            }
+        }
+        (st, clock)
+    }
+
+    /// For ordering: after midnight, a night runs on from the evening before.
+    fn key(&self) -> Option<(u32, u32)> {
+        let day = self.day?;
+        let m = self.minutes.unwrap_or(if self.night { 20 * 60 } else { 6 * 60 });
+        let m = if self.night && m < 6 * 60 { m + 24 * 60 } else { m };
+        Some((day, m))
+    }
+}
+
+fn clock_label(minutes: u32) -> String {
+    format!("[{:02}.{:02}]", minutes / 60, minutes % 60)
 }
 
 /// Words that can rightly come twice in a row ("I had had enough").
@@ -610,15 +674,18 @@ pub fn check_scene(body: &str, meta: &SceneMeta, ctx: &mut Context) -> Vec<Issue
     scan.finish(meta)
 }
 
-/// Only follow who is introduced in `body` (the cues, and first mentions in the
-/// action), as checking a later scene needs; no rules are run.
-pub fn note_introductions(body: &str, ctx: &mut Context) {
+/// Only follow what a later scene needs from `body`: who is introduced (the cues,
+/// and first mentions in the action) and the story clock. No rules are run.
+pub fn follow(body: &str, ctx: &mut Context) {
     let mut scan = Scan::new(body, ctx);
-    if !scan.tracks_introductions() {
-        return;
-    }
+    let intros = scan.tracks_introductions();
     for i in 0..scan.els.len() {
         match scan.els[i].clone() {
+            Element::SceneHeading(h) => {
+                let text = scan.lines.get(i).copied().unwrap_or("");
+                scan.story_time(i, &h, text);
+            }
+            _ if !intros => {}
             Element::Cue(c) => {
                 for s in c.speakers().into_iter().filter(|s| !GROUP_CUES.contains(s)) {
                     scan.ctx.introduced.insert(s.to_string());
@@ -1221,7 +1288,96 @@ impl<'a> Scan<'a> {
         }
     }
 
+    /// Studio scripts (BBC studio layout) give each scene a story day and often a
+    /// time, "DAY 1 [09.20]": present, in order, and written the usual way.
+    fn story_time(&mut self, i: usize, h: &crate::scene::SceneHeading, text: &str) {
+        if self.ctx.layout != crate::layout::Layout::BbcStudio {
+            return;
+        }
+        let (_, _, time) = h.parts();
+        let time = time.unwrap_or_default();
+        let up = h.text.to_uppercase();
+        if up.contains("FLASHBACK") {
+            return; // out of the story's order by design
+        }
+        let (st, clock) = StoryTime::parse(&time);
+        let continuing = ["CONTINUOUS", "LATER", "MOMENTS LATER", "SAME TIME"]
+            .iter()
+            .any(|t| up.contains(t));
+        if st.day.is_none() {
+            if !continuing {
+                self.out.push(issue(
+                    "story-day",
+                    Severity::Info,
+                    i,
+                    (0, 0),
+                    "Studio headings usually give the story day: DAY 1, NIGHT 1 (and a time, like [09.20]).".into(),
+                    None,
+                ));
+            }
+            return;
+        }
+        // The clock as studio scripts write it: [09.20].
+        if let (Some(m), Some(written)) = (st.minutes, &clock)
+            && *written != clock_label(m)
+        {
+            let span = cols(text, written);
+            story_fix(
+                &mut self.out,
+                i,
+                span,
+                format!("Studio scripts write the time as {}.", clock_label(m)),
+                format!("Write {}", clock_label(m)),
+                text.replacen(written.as_str(), &clock_label(m), 1),
+            );
+        }
+        // The guide's rule of thumb: day begins at 06.00, night at 20.00.
+        if let Some(m) = st.minutes {
+            let daytime = (6 * 60..20 * 60).contains(&m);
+            if daytime == st.night {
+                self.out.push(issue(
+                    "story-time",
+                    Severity::Info,
+                    i,
+                    (0, 0),
+                    format!(
+                        "{} at {}: by the usual rule, day begins at 06.00 and night at 20.00.",
+                        if st.night { "NIGHT" } else { "DAY" },
+                        clock_label(m)
+                    ),
+                    None,
+                ));
+            }
+        }
+        if let (Some(prev), Some(now)) = (self.ctx.story.and_then(|p| p.key()), st.key())
+            && now < prev
+        {
+            let was = self.ctx.story.unwrap();
+            let label = |s: &StoryTime| {
+                let d = format!("{} {}", if s.night { "NIGHT" } else { "DAY" }, s.day.unwrap_or(0));
+                match s.minutes {
+                    Some(m) => format!("{d} {}", clock_label(m)),
+                    None => d,
+                }
+            };
+            self.out.push(issue(
+                "story-time",
+                Severity::Info,
+                i,
+                (0, 0),
+                format!(
+                    "{} comes before the scene before it ({}). If it's a flashback, say so in the heading.",
+                    label(&st),
+                    label(&was)
+                ),
+                None,
+            ));
+        }
+        self.ctx.story = Some(st);
+    }
+
     fn heading(&mut self, i: usize, h: &crate::scene::SceneHeading, text: &str) {
+        self.story_time(i, h, text);
         let (setting, _, time) = h.parts();
         let next_blank = self.blank(i + 1);
         if !next_blank {
@@ -1528,6 +1684,17 @@ impl<'a> Scan<'a> {
         self.out.sort_by_key(|i| (i.line, i.from));
         self.out
     }
+}
+
+fn story_fix(out: &mut Vec<Issue>, i: usize, span: (usize, usize), message: String, label: String, text: String) {
+    out.push(issue(
+        "story-time",
+        Severity::Info,
+        i,
+        span,
+        message,
+        fix(label, vec![Edit::Replace { line: i, text }]),
+    ));
 }
 
 /// FADE OUT. ends a film or a TV act; between scenes it's FADE TO:.
@@ -2247,5 +2414,67 @@ mod tests {
             )
             .is_empty()
         );
+    }
+
+    #[test]
+    fn story_days_and_times_in_studio_headings() {
+        let mut c = ctx(Format::TvSingle);
+        c.layout = crate::layout::Layout::BbcStudio;
+        let body = "INT. HALL - DAY 1 [09.20]\n\nRain.\n\nINT. KITCHEN - DAY 1 [9:05]\n\nTea.\n\nINT. STAIRS - NIGHT 1 [10.00]\n\nDark.\n\nEXT. YARD - DAY\n\nMud.\n\nINT. HALL - CONTINUOUS\n\nDrip.";
+        let got = check_scene(body, &SceneMeta::default(), &mut c);
+        let msgs: Vec<(usize, &str, String)> = got
+            .iter()
+            .filter(|i| i.code.starts_with("story"))
+            .map(|i| (i.line, i.code, i.message.clone()))
+            .collect();
+        // [9:05] is written oddly and comes before [09.20]; NIGHT at 10.00 is daytime;
+        // a heading without a day is noted, but CONTINUOUS isn't.
+        assert!(
+            msgs.iter().any(|(l, _, m)| *l == 4 && m.contains("[09.05]")),
+            "{msgs:?}"
+        );
+        assert!(
+            msgs.iter().any(|(l, _, m)| *l == 4 && m.contains("comes before")),
+            "{msgs:?}"
+        );
+        assert!(
+            msgs.iter().any(|(l, _, m)| *l == 8 && m.contains("night at 20.00")),
+            "{msgs:?}"
+        );
+        assert!(msgs.iter().any(|(l, c, _)| *l == 12 && *c == "story-day"), "{msgs:?}");
+        assert!(!msgs.iter().any(|(l, _, _)| *l == 16), "{msgs:?}");
+        let fix = got
+            .iter()
+            .find(|i| i.message.starts_with("Studio scripts write"))
+            .unwrap()
+            .fix
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            fix.edits,
+            vec![Edit::Replace {
+                line: 4,
+                text: "INT. KITCHEN - DAY 1 [09.05]".into()
+            }]
+        );
+        // Carried from scene to scene: the next scene starting earlier is noted.
+        let got = check_scene("INT. HALL - DAY 1 [08.00]\n\nRain.", &SceneMeta::default(), &mut c);
+        assert!(got.iter().any(|i| i.code == "story-time"));
+        // After midnight, a night runs on.
+        let mut c2 = ctx(Format::TvSingle);
+        c2.layout = crate::layout::Layout::BbcStudio;
+        let got = check_scene(
+            "INT. A - NIGHT 1 [23.00]\n\nX.\n\nINT. B - NIGHT 1 [01.00]\n\nY.\n\nINT. C - FLASHBACK - DAY 1 [07.00]\n\nZ.",
+            &SceneMeta::default(),
+            &mut c2,
+        );
+        assert!(!got.iter().any(|i| i.code.starts_with("story")), "{got:?}");
+        // Other layouts: nothing.
+        let got = check_scene(
+            "INT. HALL - DAY\n\nRain.",
+            &SceneMeta::default(),
+            &mut ctx(Format::TvSingle),
+        );
+        assert!(!got.iter().any(|i| i.code.starts_with("story")));
     }
 }

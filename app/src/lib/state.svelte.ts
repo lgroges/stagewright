@@ -95,6 +95,8 @@ class AppState {
   showResolved = $state(false);
   /** The comment picked in the script or the panel. */
   activeComment = $state<string | null>(null);
+  /** A comment to show in the script once its scene is open (from Production). */
+  revealComment = $state<string | null>(null);
   /** comments.yaml as last read from the shared doc, when co-writing. */
   private commentsText: string | null = null;
 
@@ -155,6 +157,18 @@ class AppState {
   setAuthor(name: string) {
     this.writerName = name.trim();
     writePref(NAME_KEY, this.writerName);
+  }
+
+  /** Open a comment's scene with its passage selected and the comments panel open. */
+  async showComment(id: string) {
+    const c = this.comments.find((x) => x.id === id);
+    if (!c) return;
+    if (c.resolved) this.showResolved = true;
+    this.toggleComments(true);
+    this.activeComment = id;
+    this.revealComment = id;
+    await this.openScene(c.scene);
+    this.view = { kind: "script" };
   }
 
   toggleComments(open = !this.commentsOpen) {

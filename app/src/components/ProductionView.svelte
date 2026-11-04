@@ -35,6 +35,31 @@
   const visibleIssues = $derived(
     (check?.issues ?? []).filter((i) => episode === null || stats?.scenes.find((s) => s.id === i.scene)?.episode === episode),
   );
+  // ------------------------------------------------------------ comments
+  let showResolvedComments = $state(false);
+  /** Comments grouped by scene, in running order (episode filter as above). */
+  const commentGroups = $derived.by(() => {
+    const scenes = (app.project?.acts ?? []).flatMap((a) => a.scenes);
+    const groups: { id: string; label: string; title: string; comments: typeof app.comments }[] = [];
+    for (const s of scenes) {
+      if (episode !== null && s.episode !== episode) continue;
+      const here = app.comments.filter((c) => c.scene === s.id && (showResolvedComments || !c.resolved));
+      if (here.length) groups.push({ id: s.id, label: s.label, title: s.title, comments: here.sort((a, b) => a.line - b.line) });
+    }
+    return groups;
+  });
+  const commentCounts = $derived.by(() => {
+    const scenes = new Set(
+      (app.project?.acts ?? [])
+        .flatMap((a) => a.scenes)
+        .filter((s) => episode === null || s.episode === episode)
+        .map((s) => s.id),
+    );
+    const mine = app.comments.filter((c) => scenes.has(c.scene));
+    return { open: mine.filter((c) => !c.resolved).length, resolved: mine.filter((c) => c.resolved).length };
+  });
+  const clip = (s: string, n = 70) => (s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s).replace(/\n+/g, " / ");
+
   /** Issues grouped by scene, in running order. */
   const byScene = $derived.by(() => {
     const groups: { scene: string; label: string; title: string; issues: typeof visibleIssues }[] = [];
@@ -144,6 +169,38 @@
                   <span class="sev">{i.severity === "warning" ? "⚠" : "•"}</span>
                   <span class="msg">{i.message}</span>
                   <span class="line muted">{i.scene ? (i.text.trim() ? i.text.trim() : "(blank line)") : i.label === "Cast" ? "Cast" : "project.yaml"}</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        </div>
+      {/each}
+    </section>
+  {/if}
+
+  {#if commentCounts.open || commentCounts.resolved}
+    <section aria-label="Comments" data-testid="production-comments">
+      <h3>
+        Comments
+        <span class="muted">· {commentCounts.open} open{commentCounts.resolved ? `, ${commentCounts.resolved} resolved` : ""}</span>
+        {#if commentCounts.resolved}
+          <label class="muted small resolved-toggle"><input type="checkbox" bind:checked={showResolvedComments} /> Show resolved</label>
+        {/if}
+      </h3>
+      {#each commentGroups as g (g.id)}
+        <div class="check-scene">
+          <div class="check-head"><strong>{g.label}</strong> {g.title}</div>
+          <ul>
+            {#each g.comments as c (c.id)}
+              <li class="comment" class:resolved={c.resolved}>
+                <button class="ghost link" onclick={() => app.showComment(c.id)} title="Show in the script">
+                  <span class="sev">💬</span>
+                  <span class="msg">
+                    <strong>{c.messages[0]?.author}</strong>: {clip(c.messages[0]?.text ?? "", 120)}
+                    {#if c.messages.length > 1}<span class="muted"> · {c.messages.length - 1} {c.messages.length === 2 ? "reply" : "replies"}</span>{/if}
+                    {#if c.resolved}<span class="muted"> · resolved</span>{/if}
+                  </span>
+                  <span class="line muted">“{clip(c.quote)}”</span>
                 </button>
               </li>
             {/each}
@@ -476,5 +533,12 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .comment.resolved {
+    opacity: 0.65;
+  }
+  .resolved-toggle {
+    font-weight: normal;
+    margin-left: 8px;
   }
 </style>

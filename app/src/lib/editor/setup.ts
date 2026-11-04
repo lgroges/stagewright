@@ -238,6 +238,28 @@ interface CueSource {
   screen?: () => boolean;
   /** Ordinary-case names for the action after an introduction ("Joanna"). */
   names?: () => string[];
+  /** The BBC studio layout: offer story days ("DAY 2") in scene headings. */
+  studio?: () => boolean;
+  /** The story day of the last heading before this scene (studio layout). */
+  storyDay?: () => StoryDay | null;
+}
+
+export interface StoryDay {
+  day: number;
+  night: boolean;
+}
+
+/** "DAY 2", "NIGHT 1" in a scene heading. Mirrors StoryTime::parse in check.rs. */
+export function storyDayIn(heading: string): StoryDay | null {
+  const m = heading.toUpperCase().match(/\b(DAY|NIGHT)\s+(\d+)\b/);
+  return m ? { day: Number(m[2]), night: m[1] === "NIGHT" } : null;
+}
+
+/** Story days to offer after " - ": this day and night, then the next day. */
+function storyDayOptions(last: StoryDay | null): string[] {
+  if (!last) return ["DAY 1", "NIGHT 1"];
+  const d = last.day;
+  return last.night ? [`NIGHT ${d}`, `DAY ${d + 1}`, `NIGHT ${d + 1}`] : [`DAY ${d}`, `NIGHT ${d}`, `DAY ${d + 1}`];
 }
 
 /** Shots, angles and camera moves, written in capitals in screenplay action. */
@@ -288,7 +310,18 @@ function headingCompletion(source: CueSource) {
     const dash = before.lastIndexOf(" - ");
     if (dash >= 0) {
       const from = line.from + dash + 3;
-      return { from, options: TIMES.map((t) => ({ label: t, type: "keyword" })), validFor: /^[A-Z ]*$/ };
+      let options = TIMES.map((t) => ({ label: t, type: "keyword", boost: 0 }));
+      if (source.studio?.()) {
+        // The story day so far: the latest heading above in this scene, or the scene before.
+        let last = source.storyDay?.() ?? null;
+        const { kinds } = info(ctx.state);
+        for (let i = 0; i < line.number - 1; i++) {
+          if (kinds[i] === "scene_heading") last = storyDayIn(ctx.state.doc.line(i + 1).text) ?? last;
+        }
+        const days = storyDayOptions(last).map((t, k) => ({ label: t, type: "keyword", boost: 10 - k }));
+        options = [...days, ...options.filter((o) => o.label === "CONTINUOUS" || o.label === "LATER")];
+      }
+      return { from, options, validFor: /^[A-Z0-9 ]*$/ };
     }
     const m = before.match(/^(\.?(?:INT\.?\/EXT|INT\/EXT|I\/E|INT|EXT|EST)\.?\s+)/i);
     if (!m) {

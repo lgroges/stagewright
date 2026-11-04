@@ -4,6 +4,20 @@ Choices made about Stagewright and why, newest first. Each entry: what we chose,
 the reason, and what we didn't do. Ideas still open or turned down are in
 [ideas.md](ideas.md).
 
+## 2026-11-04 · Story days in studio scripts; comments in Production
+
+- **Story days and times** are only checked in the BBC studio layout, where the guides
+  call them customary. A heading's day ("DAY 2", "NIGHT 2") and clock ("[09.20]") are
+  read from its time part; the check follows them from scene to scene in running
+  order and starts again each episode. Flashback headings are out of order by design
+  and skipped; CONTINUOUS, LATER and SAME TIME carry the day on, so a missing day is
+  only noted elsewhere. A night after midnight ("NIGHT 1 [01.00]") runs on from the
+  evening before. The editor offers the next likely days rather than every number.
+- **Comments in Production** come straight from the comments already loaded in the
+  app (no new API), grouped by scene in running order, open ones first and resolved
+  ones on request. Clicking one opens the scene, selects the passage once it's placed,
+  and opens the panel on that thread.
+
 ## 2026-11-03 · A clean-up sweep
 
 A pass over the whole codebase for needless work and duplication.

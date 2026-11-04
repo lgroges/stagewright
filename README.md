@@ -75,7 +75,11 @@ The Export menu also chooses a **layout** for the PDF (`layout:` in project.yaml
 - **BBC studio** (TV, as taped drama and sitcom): a wide left margin, scenes numbered
   (SC1. for drama, SCENE 1. for sitcom) on new pages, NAME: underlined over the speech,
   action in capitals (in square brackets for drama), CUT TO: after every scene unless
-  you've written a transition, and END OF EPISODE.
+  you've written a transition, and END OF EPISODE. Headings carry the story day and
+  time, `INT. HALL - DAY 2 [09.20]`: the editor offers the day as you type the
+  heading, and the check notes a missing day, days or times out of order (flashbacks
+  excepted), a time written oddly, and DAY or NIGHT against the clock (day begins at
+  06.00, night at 20.00). Days start again each episode.
 
 A **shooting script** (film and TV) prints scene numbers in both margins beside every
 heading, counting through each episode (`#12#` on a heading sets its number), and
@@ -154,7 +158,8 @@ contact details: `contact:` in project.yaml, printed bottom left. The editor als
 in Google Docs. The passage is highlighted, and the comments panel (💬 above the script)
 lists the scene's threads in script order: reply, edit or delete your own messages, and
 resolve a thread to hide it (Show resolved brings it back; replying reopens it). The
-scene list counts each scene's open comments. Comments live in `comments.yaml`, never in
+scene list counts each scene's open comments, and **Production** lists every comment in
+the project; clicking one opens its passage. Comments live in `comments.yaml`, never in
 the scene files, so exports and other apps don't see them. Each is pinned to its quoted
 text with a little context either side, so it follows the text as you edit; if the text
 is deleted, the comment stays, marked as detached. When co-writing, comments are shared

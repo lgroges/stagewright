@@ -8,7 +8,7 @@
   import { liveStats } from "../lib/classify";
   import { openLintPanel } from "@codemirror/lint";
   import { recheck } from "../lib/editor/check";
-  import { refreshContd, setSpelling } from "../lib/editor/setup";
+  import { refreshContd, setSpelling, storyDayIn, type StoryDay } from "../lib/editor/setup";
   import { api, type Comment } from "../lib/api";
   import CommentsPanel from "./CommentsPanel.svelte";
   import {
@@ -41,6 +41,21 @@
   /** Each comment's stored anchor as last placed or saved here, to tell our own saves from others' changes. */
   const placed = new Map<string, string>();
   let anchorTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** The story day of the last heading before the open scene, in its episode. */
+  function lastStoryDay(): StoryDay | null {
+    const open = app.scene;
+    if (!open || !app.project) return null;
+    let last: StoryDay | null = null;
+    for (const act of app.project.acts) {
+      if (act.episode !== open.summary.episode) continue;
+      for (const s of act.scenes) {
+        if (s.id === open.id) return last;
+        for (const h of s.headings ?? []) last = storyDayIn(h) ?? last;
+      }
+    }
+    return last;
+  }
 
   const anchorKey = (a: { quote: string; before: string; after: string; line: number }) =>
     JSON.stringify([a.quote, a.before, a.after, a.line]);
@@ -172,6 +187,8 @@
           screen: () => (app.project?.format ?? "stage") !== "stage",
           names: () =>
             (app.project?.characters ?? []).flatMap((c) => [c.short, c.name].filter((n): n is string => !!n && /\p{Ll}/u.test(n))),
+          studio: () => app.project?.layout === "bbc-studio",
+          storyDay: () => lastStoryDay(),
         },
         onChange: (s) => {
           app.bodyChanged(s.doc.toString());
@@ -238,6 +255,10 @@
     view = new EditorView({ parent: host, state: makeState("") });
     // For end-to-end tests: the editor only renders visible lines, so expose the full text.
     (window as unknown as { __swText?: () => string }).__swText = () => view?.state.doc.toString() ?? "";
+    (window as unknown as { __swSelection?: () => string }).__swSelection = () => {
+      const s = view?.state.selection.main;
+      return s && view ? view.state.sliceDoc(s.from, s.to) : "";
+    };
     // …and select a passage by its text (the first match).
     (window as unknown as { __swSelect?: (t: string) => boolean }).__swSelect = (t: string) => {
       const at = view?.state.doc.toString().indexOf(t) ?? -1;
@@ -280,6 +301,18 @@
     void app.comments;
     void app.scene?.loadToken;
     placeComments();
+  });
+
+  // A comment picked in Production: select its passage once the scene is shown.
+  $effect(() => {
+    const id = app.revealComment;
+    void app.scene?.loadToken;
+    void app.comments;
+    if (!id || !view || shownId !== app.comments.find((c) => c.id === id)?.scene) return;
+    untrack(() => {
+      app.revealComment = null;
+      selectComment(id);
+    });
   });
 
   $effect(() => {

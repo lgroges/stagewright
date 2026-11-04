@@ -4,7 +4,7 @@ use crate::ops::{find_scene, load, read_text, scene_label, write_atomic};
 use crate::{ApiError, ApiResult};
 use serde_json::{json, Value};
 use stagewright_core::analysis::speakers_in;
-use stagewright_core::check::{check_cues, check_scene, note_introductions, Context, Person, Severity, CHECKS};
+use stagewright_core::check::{check_cues, check_scene, follow, Context, Person, Severity, CHECKS};
 use stagewright_core::frontmatter::set_key;
 use stagewright_core::layout::Format;
 use stagewright_core::project::ProjectMeta;
@@ -40,6 +40,7 @@ fn context(p: &Project) -> Context {
         fade_out_here: false,
         layout: p.meta.layout.for_format(p.meta.format),
         english: p.meta.dialect,
+        story: None,
     }
 }
 
@@ -85,8 +86,13 @@ pub fn check_project(root: &Path) -> ApiResult {
     let mut ctx = context(&p);
     let mut out = Vec::new();
     let (mut warnings, mut infos) = (0, 0);
+    let mut last_episode = None;
     for (n, sf) in p.scenes.iter().enumerate() {
         ctx.fade_out_here = fade_out_here(&p, n);
+        if Some(sf.episode) != last_episode {
+            ctx.story = None; // story days start again each episode
+            last_episode = Some(sf.episode);
+        }
         let body = body_of(sf);
         let lines: Vec<&str> = body.split('\n').collect();
         for i in check_scene(&body, &sf.scene.meta, &mut ctx) {
@@ -153,12 +159,20 @@ pub fn check_one(root: &Path, id: &str, body: &str) -> ApiResult {
     let mut ctx = context(&p);
     // Characters introduced in earlier scenes count as introduced. Only that is
     // wanted from them (this runs as you type), so no rules are run there.
+    let mut last_episode = None;
     for (n, sf) in p.scenes.iter().enumerate() {
         if sf.scene.meta.id == target.scene.meta.id {
+            if Some(sf.episode) != last_episode {
+                ctx.story = None;
+            }
             ctx.fade_out_here = fade_out_here(&p, n);
             break;
         }
-        note_introductions(&body_of(sf), &mut ctx);
+        if Some(sf.episode) != last_episode {
+            ctx.story = None; // story days start again each episode
+            last_episode = Some(sf.episode);
+        }
+        follow(&body_of(sf), &mut ctx);
     }
     let issues = check_scene(&body.replace("\r\n", "\n"), &target.scene.meta, &mut ctx);
     Ok(json!({ "issues": issues }))

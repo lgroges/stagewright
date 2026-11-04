@@ -112,6 +112,18 @@ async function open(browser, fixture) {
       check("studio scenes are numbered, names have colons, action is bracketed", /SC1\. INT\./.test(text) && /DANA:/.test(text) && /\[A GRANDFATHER CLOCK/.test(text), text.slice(0, 600));
       check("and the episode ends END OF EPISODE", /END OF EPISODE/.test(text));
     }
+    // Studio headings: story days are offered, and a heading without one is noted
+    await p.keyboard.press("Escape");
+    await p.click(".cm-content");
+    await p.keyboard.press("Control+End");
+    for (const k of ["Shift+Enter", "Shift+Enter"]) await p.keyboard.press(k);
+    await p.keyboard.type("INT. HALL - ");
+    await p.waitForSelector(".cm-tooltip-autocomplete li:has-text('DAY 1')", { timeout: 5000 });
+    check("story days are offered in studio headings", (await p.locator(".cm-tooltip-autocomplete li").first().textContent()).startsWith("DAY 1"));
+    await p.keyboard.press("Enter");
+    await p.waitForFunction(() => window.__swText().endsWith("INT. HALL - DAY 1"));
+    check("and written into the heading", true);
+    await p.keyboard.press("Escape");
     check("the layout is saved in project.yaml", /layout: "?bbc-studio"?/.test(fs.readFileSync(path.join(s2.project, "project.yaml"), "utf8")));
   } catch (e) {
     console.error(e);

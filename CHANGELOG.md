@@ -7,6 +7,8 @@ change, the cursor, is listed under 0.3.0.)
 
 ## Unreleased
 
+## 0.8.0 (2026-11-04)
+
 - **Comments in Production**: every comment in the project (or the episode shown),
   scene by scene, with who wrote it and how many replies. Click one to open its scene
   with the passage selected and the comments panel open. Resolved ones are hidden

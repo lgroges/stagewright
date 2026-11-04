@@ -5,6 +5,9 @@ it's settled, either built or turned down for good.
 
 ## Open
 
+- **Sides**: a script for each actor, with only the scenes they're in and their lines
+  marked, printed from Export. On the original plan (README, phase 6) but never
+  recorded here.
 - **Story day and time in studio headings** (DAY 1 [09.20]): the BBC studio layout
   prints whatever the heading says; it could offer them, or check they're in order.
 - **AI features** beyond the rule-based check, once we've seen how useful the rules
@@ -17,7 +20,6 @@ it's settled, either built or turned down for good.
 - **Comments in Production**: a project-wide list of open comments, like the script
   check's. At present the scene list counts them per scene.
 - **Printing comments** in a PDF export (in the margin or as endnotes), for a read-through.
-
 - **Cache the loaded project in the API.** Every command reads and parses every scene
   (about 5 ms for a 144-scene series in a release build, more for the script check's
   context). A cache keyed on file times would make big projects snappier. Found in

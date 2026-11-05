@@ -1014,7 +1014,8 @@ pub fn act_remove_empty(root: &Path, aref: ActRef) -> ApiResult {
 
 const COLLAB_DIR: &str = ".stagewright";
 
-fn collab_dir(root: &Path) -> Result<PathBuf, ApiError> {
+/// `.stagewright/`: this writer's own state (co-writing, AI reviews), never shared.
+pub(crate) fn collab_dir(root: &Path) -> Result<PathBuf, ApiError> {
     let dir = root.join(COLLAB_DIR);
     if !dir.exists() {
         fs::create_dir_all(&dir).map_err(|e| io_err(&dir, e))?;

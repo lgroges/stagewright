@@ -5,6 +5,7 @@
 //! [`ApiError`]. Scenes are addressed by their stable `id`, never by path,
 //! so renames and reorders cannot break references.
 
+mod ai;
 mod cast;
 mod checks;
 mod comments;
@@ -48,6 +49,19 @@ impl std::fmt::Display for ApiError {
 impl std::error::Error for ApiError {}
 
 pub type ApiResult = Result<Value, ApiError>;
+
+/// Commands that need no open project and may take a long time (the AI review):
+/// run them without holding the workspace, so saving and checking go on meanwhile.
+pub const FREE_COMMANDS: &[&str] = &["ai_status", "ai_review"];
+
+/// Run one of `FREE_COMMANDS`; `None` for any other.
+pub fn dispatch_free(cmd: &str, args: &Value) -> Option<ApiResult> {
+    match cmd {
+        "ai_status" => Some(ai::status(args)),
+        "ai_review" => Some(ai::review(args)),
+        _ => None,
+    }
+}
 
 /// Get the grammar checker ready in the background (it takes most of a second to
 /// build), so the first script check after opening a project doesn't wait.
@@ -199,7 +213,16 @@ pub fn dispatch(ws: &mut Workspace, cmd: &str, args: Value) -> ApiResult {
         )
         .map(|text| serde_json::json!({ "text": text })),
         "check_project" => checks::check_project(&ws.root()?),
-        "check_scene" => checks::check_one(&ws.root()?, &arg_str(&args, "id")?, &arg_str(&args, "body")?),
+        "check_scene" => checks::check_one(
+            &ws.root()?,
+            &arg_str(&args, "id")?,
+            &arg_str(&args, "body")?,
+            &args
+                .get("ai")
+                .cloned()
+                .and_then(|v| serde_json::from_value::<Vec<ai::Finding>>(v).ok())
+                .unwrap_or_default(),
+        ),
         "set_check" => checks::set_check(
             &ws.root()?,
             &arg_str(&args, "code")?,

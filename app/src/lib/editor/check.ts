@@ -87,13 +87,16 @@ export function toDiagnostics(doc: Text, issues: Issue[], off: (code: string) =>
         },
       });
     }
-    actions.push({ name: "Don't check for this", apply: () => off(i.code) });
+    const byAi = i.code.startsWith("ai-");
+    actions.push({ name: byAi ? "Don't show AI notes" : "Don't check for this", apply: () => off(i.code) });
     out.push({
       from,
       to: Math.max(from, to),
       severity: i.severity === "warning" ? "warning" : "info",
       message: i.message,
-      source: i.code,
+      // AI notes look different: they're a model's suggestion, not a rule's.
+      source: byAi ? "AI review" : i.code,
+      markClass: byAi ? "sw-ai" : undefined,
       actions,
     });
   }

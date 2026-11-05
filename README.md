@@ -154,6 +154,18 @@ contact details: `contact:` in project.yaml, printed bottom left. The editor als
 (`checks: {off: [...]}` in project.yaml).
 `stagewright check <dir>` prints the same list.
 
+**AI review.** **Review scene** (under the script) asks a model running on your computer,
+through [Ollama](https://ollama.com), for grammar mistakes, typos and wrong words the
+checks miss ("turns away upon to the sight"), in dialogue as well as action. It's told
+to leave period language, the way characters speak and script fragments alone. Its notes
+are marked **AI** (dashed violet) alongside the check's, with a one-click change where
+there's a simple fix, and follow the text as you edit. You can keep writing while it
+runs; reviewing unchanged text again is instant (reviews are kept in `.stagewright/ai/`,
+never shared). It uses Qwen 3.6 if installed (`ollama pull qwen3.6`), or the model chosen
+under Production → Checks…, where the Ollama address can be changed too. If Ollama isn't
+running, Review says so and nothing else changes. The script isn't sent anywhere else.
+Switch it off for a project like any check (`ai-grammar`).
+
 **Comments.** Select some text and press **Comment** (Ctrl+Alt+M) to comment on it, as
 in Google Docs. The passage is highlighted, and the comments panel (💬 above the script)
 lists the scene's threads in script order: reply, edit or delete your own messages, and

@@ -102,6 +102,7 @@ pub const CHECKS: &[(&str, &str)] = &[
     ("story-day", "A studio scene heading with no story day (DAY 1, NIGHT 1)"),
     ("story-time", "Story days and times out of order, or written oddly"),
     ("title-page", "Title page details missing"),
+    ("ai-grammar", "AI review: grammar and wrong words (Review scene)"),
 ];
 
 /// Camera and technical directions a spec script leaves to the director.
@@ -2002,8 +2003,8 @@ mod tests {
     fn every_rule_is_listed() {
         let src = include_str!("check.rs");
         for (code, _) in CHECKS {
-            if *code == "title-page" {
-                continue; // a project-level check, made in the API
+            if *code == "title-page" || *code == "ai-grammar" {
+                continue; // made in the API (the title page) or by the AI review
             }
             assert!(src.matches(&format!("\"{code}\"")).count() >= 2, "{code}");
         }

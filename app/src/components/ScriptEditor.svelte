@@ -153,6 +153,9 @@
     // In script order; detached ones last.
     return list.sort((a, b) => (a.at ?? Infinity) - (b.at ?? Infinity));
   });
+  const reviewing = $derived(app.aiReview?.status === "busy");
+  // A review under way (of any scene), or the result of this scene's.
+  const review = $derived(app.aiReview && (reviewing || app.aiReview.scene === app.scene?.id) ? app.aiReview : null);
   const openCount = $derived(sceneComments.filter((c) => !c.comment.resolved).length);
 
   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -210,9 +213,12 @@
         check: {
           check: async (body) => {
             const sc = app.scene;
-            return sc ? (await api.checkScene(sc.id, body)).issues : null;
+            return sc ? (await api.checkScene(sc.id, body, app.aiFindings[sc.id] ?? [])).issues : null;
           },
-          off: (code) => void app.setCheck(code, false),
+          off: (code) => {
+            if (code === "ai-grammar" && app.scene) app.clearAi(app.scene.id);
+            void app.setCheck(code, false);
+          },
         },
         autoContd: () => app.project?.auto_contd ?? false,
         spellcheck: app.spellcheck,
@@ -433,6 +439,19 @@
     </div>
   {/if}
 
+  {#if review}
+    <div class="ai-bar" class:failed={review.status === "failed"} role="status" data-testid="ai-status">
+      <span class="ai-tag">AI</span>
+      <span>{review.message}</span>
+      {#if review.status !== "busy"}
+        {#if app.scene && app.aiFindings[app.scene.id]?.length}
+          <button class="ghost" onclick={() => app.scene && app.clearAi(app.scene.id)}>Clear</button>
+        {/if}
+        <button class="ghost" aria-label="Close" onclick={() => (app.aiReview = null)}>✕</button>
+      {/if}
+    </div>
+  {/if}
+
   {#if app.saveStatus === "conflict"}
     <div class="conflict" role="alert">
       <strong>This scene was changed outside Stagewright.</strong>
@@ -475,11 +494,47 @@
         {#if issues.infos}{issues.infos} {issues.infos === 1 ? "note" : "notes"}{/if}
       </button>
     {/if}
+    <button
+      class="ghost review"
+      onclick={() => view && app.reviewScene(view.state.doc.toString())}
+      disabled={reviewing || !app.scene}
+      title="Ask the AI on this computer (Ollama) for grammar and wrong words the checks miss"
+      data-testid="ai-review"><span class="ai-tag">AI</span> {reviewing ? "Reviewing…" : "Review scene"}</button
+    >
     <span class="file muted">{app.scene?.summary.file}</span>
   </footer>
 </div>
 
 <style>
+  .ai-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    font-size: 12.5px;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, #7c5cff 8%, var(--paper));
+    color: var(--ink-2);
+  }
+  .ai-bar.failed {
+    background: color-mix(in srgb, var(--bad) 8%, var(--paper));
+  }
+  .ai-bar button {
+    font-size: 12px;
+    padding: 1px 7px;
+  }
+  .ai-bar button:first-of-type {
+    margin-left: auto;
+  }
+  .ai-tag {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: #fff;
+    background: #7c5cff;
+  }
   .comment-add {
     margin-left: auto;
   }
@@ -609,6 +664,20 @@
   .issues.warn {
     color: var(--warn);
     font-weight: 600;
+  }
+  .review {
+    font-size: 12px;
+    padding: 0 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .review .ai-tag {
+    font-size: 9.5px;
+    padding: 0 4px;
+  }
+  .review:disabled .ai-tag {
+    opacity: 0.6;
   }
   .file {
     margin-left: auto;

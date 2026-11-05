@@ -19,6 +19,7 @@
     "e2e:check": "node e2e/check.cjs",
     "e2e:layout": "node e2e/layout.cjs",
     "e2e:comments": "node e2e/comments.cjs",
+    "e2e:ai": "node e2e/ai.cjs",
     "relay": "cargo run -q -p stagewright -- relay --data ../.relay-data"
   },
   "dependencies": {

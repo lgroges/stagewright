@@ -3,8 +3,10 @@
 // version, so body saves and metadata edits never trample each other.
 
 import {
+  ai,
   api,
   ApiError,
+  type AiFinding,
   callLate,
   isTauri,
   type Comment,
@@ -42,6 +44,9 @@ const RECENT_KEY = "stagewright.recent";
 const RELAY_KEY = "stagewright.relay";
 const NAME_KEY = "stagewright.name";
 const DEFAULT_RELAY = "ws://127.0.0.1:4444";
+const AI_URL_KEY = "stagewright.ai.url";
+const AI_MODEL_KEY = "stagewright.ai.model";
+export const DEFAULT_AI_URL = "http://127.0.0.1:11434";
 
 function readPref(key: string, fallback: string): string {
   try {
@@ -134,6 +139,8 @@ class AppState {
     this.loadFolded();
     this.commentsText = null;
     this.activeComment = null;
+    this.aiFindings = {};
+    this.aiReview = null;
     this.scene = null;
     this.view = { kind: "script" };
     if (resumeSharing) {
@@ -651,6 +658,56 @@ class AppState {
 
   /** Bumps when check settings change, so open editors check again. */
   checksVersion = $state(0);
+
+  // -------------------------------------------------------------- AI review
+
+  /** Where Ollama is, and the model to use ("" = a Qwen 3.6 if installed). This computer only. */
+  aiUrl = $state(readPref(AI_URL_KEY, DEFAULT_AI_URL));
+  aiModel = $state(readPref(AI_MODEL_KEY, ""));
+  /** The latest review's findings for each scene, shown with the script check. */
+  aiFindings = $state<Record<string, AiFinding[]>>({});
+  /** The review under way or just finished, for the bar above the script. */
+  aiReview = $state<{ scene: string; status: "busy" | "done" | "failed"; message: string } | null>(null);
+
+  setAi(url: string, model: string) {
+    this.aiUrl = url.trim() || DEFAULT_AI_URL;
+    this.aiModel = model.trim();
+    writePref(AI_URL_KEY, this.aiUrl);
+    writePref(AI_MODEL_KEY, this.aiModel);
+  }
+
+  /**
+   * Review the open scene with the AI. Runs beside saving and the rule checks
+   * (never instead of them); a failure only shows its reason.
+   */
+  async reviewScene(body: string) {
+    const scene = this.scene?.id;
+    if (!scene || !this.project || this.aiReview?.status === "busy") return;
+    const model = this.aiModel;
+    this.aiReview = { scene, status: "busy", message: `Reviewing with ${model || "the local model"}… this can take a minute.` };
+    const r = await ai.review({ root: this.project.root, scene, body, url: this.aiUrl, model });
+    if (this.aiReview?.scene !== scene) return; // the project closed meanwhile
+    if (r.ok) {
+      this.aiFindings = { ...this.aiFindings, [scene]: r.findings };
+      const n = r.findings.length;
+      this.aiReview = {
+        scene,
+        status: "done",
+        message: `${r.model}: ${n === 0 ? "nothing found" : n === 1 ? "1 note" : `${n} notes`}, marked “AI” in the script.`,
+      };
+    } else {
+      this.aiReview = { scene, status: "failed", message: r.reason };
+    }
+    this.checksVersion++;
+  }
+
+  /** Stop showing the AI's findings for a scene. */
+  clearAi(scene: string) {
+    const { [scene]: _, ...rest } = this.aiFindings;
+    this.aiFindings = rest;
+    if (this.aiReview?.scene === scene && this.aiReview.status !== "busy") this.aiReview = null;
+    this.checksVersion++;
+  }
   /** A line to show once its scene is open (from the Production issue list). */
   goTo = $state<{ id: string; line: number } | null>(null);
 

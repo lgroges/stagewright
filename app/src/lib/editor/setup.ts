@@ -550,6 +550,11 @@ const checkTheme = EditorView.theme({
     textDecorationThickness: "2px",
     textUnderlineOffset: "3px",
   },
+  // The AI review's notes: a model's suggestions, so marked apart from the rules'.
+  ".cm-lintRange-info.sw-ai, .cm-lintRange-warning.sw-ai": {
+    textDecoration: "underline dashed #8b6cff",
+    textDecorationThickness: "2px",
+  },
   ".cm-tooltip.cm-tooltip-hover": {
     background: "var(--paper)",
     color: "var(--ink)",

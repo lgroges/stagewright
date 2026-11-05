@@ -7,6 +7,15 @@ change, the cursor, is listed under 0.3.0.)
 
 ## Unreleased
 
+- **AI review** (try-out): **Review scene**, under the script, asks a local model
+  (Qwen 3.6 through Ollama, on your computer) for grammar mistakes, typos and wrong
+  words the checks miss, in dialogue as well as action, leaving period language and
+  the way characters speak alone. Its notes are marked AI beside the check's, with a
+  one-click change where there's a simple fix. You can keep writing while it runs;
+  unchanged scenes aren't reviewed twice. If Ollama isn't running, it says so and the
+  checks carry on as before. The Ollama address and model are under Production →
+  Checks…, and a project can switch the review off there.
+
 ## 0.8.0 (2026-11-04)
 
 - **Comments in Production**: every comment in the project (or the episode shown),

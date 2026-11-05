@@ -153,7 +153,9 @@ pub fn check_project(root: &Path) -> ApiResult {
 }
 
 /// One scene, with the text as it is in the editor (maybe unsaved).
-pub fn check_one(root: &Path, id: &str, body: &str) -> ApiResult {
+/// Check one scene as it is in the editor. `ai`: findings from an AI review of
+/// it (`ai_review`), shown with the rule issues unless switched off.
+pub fn check_one(root: &Path, id: &str, body: &str, ai: &[crate::ai::Finding]) -> ApiResult {
     let p = load(root)?;
     let target = find_scene(&p, id)?;
     let mut ctx = context(&p);
@@ -174,7 +176,13 @@ pub fn check_one(root: &Path, id: &str, body: &str) -> ApiResult {
         }
         follow(&body_of(sf), &mut ctx);
     }
-    let issues = check_scene(&body.replace("\r\n", "\n"), &target.scene.meta, &mut ctx);
+    let body = body.replace("\r\n", "\n");
+    let mut issues = check_scene(&body, &target.scene.meta, &mut ctx);
+    if !ai.is_empty() && !ctx.off.contains("ai-grammar") {
+        let found = crate::ai::issues(&body, ai, &issues);
+        issues.extend(found);
+        issues.sort_by_key(|i| (i.line, i.from));
+    }
     Ok(json!({ "issues": issues }))
 }
 

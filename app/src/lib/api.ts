@@ -332,6 +332,31 @@ export function callLate<T>(cmd: string, args: () => Record<string, unknown>): P
   return run;
 }
 
+/** Something the AI review found: `quote` is the words, as they were in the scene. */
+export interface AiFinding {
+  quote: string;
+  line: number;
+  message: string;
+  suggestion: string;
+}
+
+export type AiReview =
+  | { ok: true; findings: AiFinding[]; cached: boolean; model: string | null }
+  | { ok: false; reason: string; off?: boolean };
+
+export type AiStatus = { ok: true; url: string; models: string[] } | { ok: false; reason: string };
+
+/**
+ * The AI review (a local model, through Ollama). These don't queue behind
+ * saves (a review can take minutes), and never throw: a failure is `ok: false`.
+ */
+export const ai = {
+  status: (url: string) =>
+    (transport("ai_status", { url }) as Promise<AiStatus>).catch((e): AiStatus => ({ ok: false, reason: String(e?.message ?? e) })),
+  review: (args: { root: string; scene: string; body: string; url: string; model: string }) =>
+    (transport("ai_review", args) as Promise<AiReview>).catch((e): AiReview => ({ ok: false, reason: String(e?.message ?? e) })),
+};
+
 export interface CollabConfig {
   relay: string;
   room: string;
@@ -362,7 +387,8 @@ export const api = {
   episodeCreate: (title?: string) => call<ProjectView>("episode_create", { title }),
   setOption: (name: string, value: unknown) => call<ProjectView>("set_option", { name, value }),
   yamlSetOption: (text: string, name: string, value: unknown) => call<{ text: string }>("yaml_set_option", { text, name, value }),
-  checkScene: (id: string, body: string) => call<{ issues: Issue[] }>("check_scene", { id, body }),
+  /** `ai`: findings from an AI review of this scene, to show with the rule issues. */
+  checkScene: (id: string, body: string, ai: AiFinding[] = []) => call<{ issues: Issue[] }>("check_scene", { id, body, ai }),
   checkProject: () => call<ProjectCheck>("check_project"),
   setCheck: (code: string, on: boolean) => call<ProjectCheck>("set_check", { code, on }),
   yamlSetCheck: (text: string, code: string, on: boolean) => call<{ text: string }>("yaml_set_check", { text, code, on }),

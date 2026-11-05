@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { api, type ProjectCheck, type Stats, type StatsScene } from "../lib/api";
+  import { onMount, untrack } from "svelte";
+  import { ai, api, type AiStatus, type ProjectCheck, type Stats, type StatsScene } from "../lib/api";
   import { app } from "../lib/state.svelte";
 
   let stats = $state<Stats | null>(null);
@@ -31,6 +31,19 @@
     void app.checksVersion;
     void app.project;
     void loadCheck();
+  });
+  // The AI review's settings (this computer's, not the project's).
+  let aiUrl = $state(app.aiUrl);
+  let aiModel = $state(app.aiModel);
+  let aiStatus = $state<AiStatus | null>(null);
+  async function testAi() {
+    app.setAi(aiUrl, aiModel);
+    aiUrl = app.aiUrl;
+    aiStatus = null;
+    aiStatus = await ai.status(app.aiUrl);
+  }
+  $effect(() => {
+    if (showSettings) untrack(() => void testAi());
   });
   const visibleIssues = $derived(
     (check?.issues ?? []).filter((i) => episode === null || stats?.scenes.find((s) => s.id === i.scene)?.episode === episode),
@@ -151,6 +164,31 @@
             </li>
           {/each}
         </ul>
+        <div class="ai-settings" data-testid="ai-settings">
+          <strong>AI review</strong>
+          <span class="muted small">
+            Review scene, under the script, asks a model running on this computer (through Ollama) for grammar and wrong
+            words the checks miss. The script isn't sent anywhere else. These settings are this computer's.
+          </span>
+          <label>
+            Ollama
+            <input bind:value={aiUrl} onchange={testAi} spellcheck="false" data-testid="ai-url" />
+          </label>
+          <label>
+            Model
+            <select bind:value={aiModel} onchange={() => app.setAi(aiUrl, aiModel)} data-testid="ai-model">
+              <option value="">Qwen 3.6, if installed</option>
+              {#if aiStatus?.ok}
+                {#each aiStatus.models as m (m)}<option value={m}>{m}</option>{/each}
+              {/if}
+              {#if aiModel && !(aiStatus?.ok && aiStatus.models.includes(aiModel))}<option value={aiModel}>{aiModel}</option>{/if}
+            </select>
+          </label>
+          <span class="small" class:bad={aiStatus && !aiStatus.ok} data-testid="ai-reachable">
+            {#if !aiStatus}Checking…{:else if aiStatus.ok}Ollama is running ({aiStatus.models.length}
+              {aiStatus.models.length === 1 ? "model" : "models"}).{:else}{aiStatus.reason}{/if}
+          </span>
+        </div>
       {/if}
       {#each byScene as g (g.scene + "|" + g.label)}
         <div class="check-scene">
@@ -492,6 +530,32 @@
   }
   .settings li {
     padding: 2px 0;
+  }
+  .ai-settings {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 14px;
+    margin: 0 0 12px;
+    padding: 8px 10px;
+    font-size: 13px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    max-width: 960px;
+  }
+  .ai-settings > .muted {
+    flex-basis: 100%;
+  }
+  .ai-settings label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ai-settings input {
+    width: 220px;
+  }
+  .ai-settings .bad {
+    color: var(--bad);
   }
   .check-scene {
     margin: 6px 0 10px;

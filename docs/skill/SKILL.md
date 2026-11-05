@@ -25,7 +25,7 @@ the summary below. Try, in order:
    fetch it then, or carry on with the summary below if he'd rather not.
 
 The page starts with a "Format version" line. This skill was written for **format version
-4**. If the live version is higher, use the live page, and tell Liam in one line that
+5**. If the live version is higher, use the live page, and tell Liam in one line that
 this skill can be refreshed (he can ask Claude in the Stagewright repo to propose the
 update). If the page can't be reached, use the summary below and say it may be out
 of date.
@@ -53,7 +53,7 @@ Read `comments.yaml` too: each comment is pinned to a passage of one scene (by
 `scene` id and `quote`). Unresolved comments are open questions Liam or a co-writer
 raised; mention ones that bear on what he asked.
 
-## 4. Summary of the format (version 4)
+## 4. Summary of the format (version 5)
 
 **project.yaml**: `title`, `subtitle`, `authors`, `contact`, `format` (`stage`,
 `film`, `tv-single`, `tv-multi`), `series` and `episodes: [{number, title}]`, `acts:

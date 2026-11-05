@@ -1,7 +1,7 @@
 //! `stagewright serve`: the editor in a browser, backed by the same API the
 //! desktop app uses. Binds to 127.0.0.1 only.
 
-use stagewright_api::{ApiError, Workspace, dispatch};
+use stagewright_api::{ApiError, FREE_COMMANDS, Workspace, dispatch, dispatch_free};
 use std::path::{Component, Path, PathBuf};
 use tiny_http::{Header, Method, Response, Server};
 
@@ -68,6 +68,17 @@ fn same_origin(req: &tiny_http::Request, port: u16) -> Result<(), &'static str> 
     Ok(())
 }
 
+fn json_response(done: Result<serde_json::Value, ApiError>) -> tiny_http::ResponseBox {
+    let (status, out) = match done {
+        Ok(v) => (200, v),
+        Err(e) => (400, serde_json::to_value(&e).unwrap()),
+    };
+    Response::from_string(out.to_string())
+        .with_status_code(status)
+        .with_header(header("Content-Type", "application/json"))
+        .boxed()
+}
+
 pub fn run(root: Option<PathBuf>, port: u16, static_dir: Option<PathBuf>) -> Result<(), String> {
     let server = Server::http(("127.0.0.1", port)).map_err(|e| e.to_string())?;
     let mut ws = Workspace::new(root.clone());
@@ -98,14 +109,17 @@ pub fn run(root: Option<PathBuf>, port: u16, static_dir: Option<PathBuf>) -> Res
                 } else {
                     serde_json::from_str(&body).map_err(|e| ApiError::new("bad_json", e.to_string()))
                 };
-                let (status, out) = match args.and_then(|a| dispatch(&mut ws, cmd, a)) {
-                    Ok(v) => (200, v),
-                    Err(e) => (400, serde_json::to_value(&e).unwrap()),
-                };
-                Response::from_string(out.to_string())
-                    .with_status_code(status)
-                    .with_header(header("Content-Type", "application/json"))
-                    .boxed()
+                if FREE_COMMANDS.contains(&cmd) {
+                    // Long-running and project-free (the AI review): answer from its own
+                    // thread so the editor keeps saving and checking meanwhile.
+                    let cmd = cmd.to_string();
+                    std::thread::spawn(move || {
+                        let done = args.and_then(|a| dispatch_free(&cmd, &a).expect("a free command"));
+                        let _ = req.respond(json_response(done));
+                    });
+                    continue;
+                }
+                json_response(args.and_then(|a| dispatch(&mut ws, cmd, a)))
             }
         } else if let Some(dir) = &static_dir {
             match static_path(dir, &url).and_then(|p| std::fs::read(&p).ok().map(|b| (p, b))) {

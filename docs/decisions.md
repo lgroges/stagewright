@@ -4,6 +4,34 @@ Choices made about Stagewright and why, newest first. Each entry: what we chose,
 the reason, and what we didn't do. Ideas still open or turned down are in
 [ideas.md](ideas.md).
 
+## 2026-11-05 · An AI review, on a local model
+
+A first AI feature on top of the rule-based check: **Review scene** asks a model on
+the writer's computer, through Ollama (Qwen 3.6 by default), for grammar mistakes,
+typos and wrong words, dialogue included.
+
+- **The rules stay first.** The review only runs when asked, and every failure (Ollama
+  not running, the model missing, a reply in the wrong form) is a reason shown above
+  the script, never an error; the checks carry on regardless. We didn't run it as you
+  type: a local model takes seconds to minutes a scene.
+- **Rust calls Ollama**, so the desktop app and `serve` behave the same and the page
+  needs no network permission. The call runs outside the workspace lock (and on its own
+  thread in `serve`), and outside the app's queue of calls, so saving and checking go
+  on during a review.
+- **Constrained replies, checked.** The model must answer in a JSON schema (a quote,
+  the problem, a suggestion), with thinking off and temperature 0. A finding whose
+  quote isn't in the scene is dropped. Findings are placed by their quote each time
+  the scene is checked, so they follow edits and vanish when their words are changed,
+  and one a rule already flags in the same place isn't shown twice.
+- **Period language**: the prompt says not to flag archaic or period wording, dialect,
+  or script fragments, and gives the script's title, format, English and character
+  names. We didn't add a period setting yet (see ideas.md).
+- **Kept locally**: reviews are cached in `.stagewright/ai/` by model, prompt version
+  and text, never shared when co-writing. The Ollama address and model are this
+  computer's settings, not the project's.
+- **Switched off like a check** (`ai-grammar` in `checks.off`), rather than a new
+  `ai: off` option, so the project format only gains a code.
+
 ## 2026-11-04 · Story days in studio scripts; comments in Production
 
 - **Story days and times** are only checked in the BBC studio layout, where the guides

@@ -5,7 +5,7 @@ holds and how to put the script together in order. Keep it current: any change t
 the files the app reads or writes updates this page (and its version) in the same
 commit.
 
-**Format version 4** · last changed in Stagewright 0.7.0 (2026-11-03)
+**Format version 5** · last changed in Stagewright 0.9.0 (unreleased)
 
 ## A project is a folder
 
@@ -20,7 +20,7 @@ my-play/
   acts/01/010-the-quay.scene
   episodes/01/acts/01/010-cold-open.scene   a TV series: episodes/<EE>/acts/<NN>/
   .trash/               deleted scenes and acts (ignore when reading the script)
-  .stagewright/         co-writing state (ignore)
+  .stagewright/         this writer's own state: co-writing, AI reviews (ignore)
 ```
 
 All text is UTF-8 with LF line endings.
@@ -48,7 +48,7 @@ folders and file names are what decide the order.
 | `shooting_script` | `true`: a shooting script (camera directions allowed, scene numbers printed). Default: a spec script. |
 | `layout` | PDF layout: `uk-stage` (stage plays) or `bbc-studio` (TV); absent means standard. |
 | `dialect` | The English the grammar check expects: `british` (default), `american`, `canadian`, `australian`, `indian`. |
-| `checks` | `{off: [codes]}`: script-check rules switched off. |
+| `checks` | `{off: [codes]}`: script-check rules switched off (`ai-grammar` switches off the AI review). |
 
 ## characters.yaml
 

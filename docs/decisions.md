@@ -33,6 +33,13 @@ typos and wrong words, dialogue included.
   eyes that misses things, not a proofread. The model sometimes echoes the paragraph
   number into its answer; that's stripped. A paragraph changed
   too much (rewritten, not corrected) and changes to names in capitals are dropped.
+- **Reasons come from a second, short request**: the changes alone, each with its
+  paragraph, asking what's wrong with the original words, in a writer's terms (with
+  examples). Asking for reasons in the correction request would change that
+  request, which is sensitive to wording. Tried with Qwen 3.6 on eight changes: the
+  seven real corrections were explained correctly in about 17 seconds; a doubtful one
+  was defended rather than doubted, so a reason explains a suggestion, it doesn't
+  prove it. Without an answer the notes stand without reasons.
 - **Small wording changes to the instructions changed the results** (a longer cast
   list and two more "leave alone" items halved what it found), so the prompt is kept
   as tested and its version is part of the cache key.

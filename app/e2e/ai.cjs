@@ -28,8 +28,13 @@ function fakeOllama(port, delay) {
       if (req.url === "/api/tags") return reply({ models: [{ name: "qwen3.6:27b" }] });
       if (req.url === "/api/chat") {
         asked.push(JSON.parse(body));
-        // Each paragraph back as sent, but one corrected, and one that isn't in the scene.
         const req = JSON.parse(body);
+        // Asked why: a reason for each change.
+        if (/explain/.test(req.messages[0].content)) {
+          const reasons = [...req.messages[1].content.matchAll(/^\[(\d+)\] In:/gm)].map(([, n]) => ({ n: Number(n), why: "A noun like this needs its article" }));
+          return reply({ message: { role: "assistant", content: JSON.stringify({ reasons }) } });
+        }
+        // Each paragraph back as sent, but one corrected, and one that isn't in the scene.
         const paragraphs = [...req.messages[1].content.matchAll(/^\[(\d+)\] (.*)$/gm)].map(([, n, text]) => ({
           n: Number(n),
           text: text.replace("stamps papers without", "stamps the papers without"),
@@ -91,6 +96,7 @@ function fakeOllama(port, delay) {
     await page.waitForSelector(".cm-panel-lint");
     const panel = await page.locator(".cm-panel-lint").textContent();
     check("the list says it's from the AI review", panel.includes("AI review"), panel);
+    check("and gives the change with the model's reason", panel.includes("Add \u201cthe\u201d? A noun like this needs its article."), panel);
     await page.locator('.cm-panel-lint button:has-text("Change to")').first().click();
     await until(async () => (await text()).includes("The ADMIRAL stamps the papers without reading them."), 3000, "the fix");
     check("its fix puts the suggestion in", true);

@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Bump when the prompt or schema changes, so cached reviews are redone.
-const PROMPT_VERSION: u32 = 4;
+const PROMPT_VERSION: u32 = 5;
 pub const DEFAULT_URL: &str = "http://127.0.0.1:11434";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,6 +36,10 @@ pub struct Finding {
     /// The quote corrected; empty when there's no simple fix.
     #[serde(default)]
     pub suggestion: String,
+    /// What was changed, word for word (before, after, and the paragraph), for
+    /// asking the model why. Not kept.
+    #[serde(skip)]
+    pub change: Option<(String, String, String)>,
 }
 
 fn agent(read: Duration) -> ureq::Agent {
@@ -461,6 +465,7 @@ pub fn place(body: &str, paras: &[Paragraph], raw: &Value) -> Vec<Finding> {
                     line,
                     message,
                     suggestion,
+                    change: Some((was, now, p.text.clone())),
                 });
             }
         }
@@ -548,15 +553,85 @@ fn cache_key(model: &str, messages: &Value) -> String {
 }
 
 /// One request: the model's answer as JSON, or why there isn't one.
+const REASONS_SCHEMA: &str = r#"{"type":"object","properties":{"reasons":{"type":"array","items":{"type":"object","properties":{"n":{"type":"integer"},"why":{"type":"string"}},"required":["n","why"]}}},"required":["reasons"]}"#;
+
+/// The request for the reasons behind the changes: a separate, short one, so
+/// the corrections themselves are asked for exactly as tested.
+pub fn reasons_prompt(changes: &[(String, String, String)]) -> Value {
+    let system = format!(
+        "You explain a copy editor's suggested changes to a script's writer. For each numbered change, \
+say in a few plain words what is wrong with the original words, as a writer would put it. Examples: \
+“‘recieve’ is misspelt.” “The subject, ‘the actors’, is plural.” \
+“‘their’ should be ‘there’, the place.” “A word is repeated.” \
+“‘Off of’ is informal; ‘off’ is enough.” If the original seems fine to you, say \
+“May be fine as written.” and why.\nAnswer only with JSON matching this schema: {REASONS_SCHEMA}"
+    );
+    let user: Vec<String> = changes
+        .iter()
+        .enumerate()
+        .map(|(i, (was, now, para))| {
+            format!(
+                "[{}] In: {para}\nChange: \u{201c}{was}\u{201d} \u{2192} \u{201c}{now}\u{201d}",
+                i + 1
+            )
+        })
+        .collect();
+    json!([
+        { "role": "system", "content": system },
+        { "role": "user", "content": user.join("\n\n") },
+    ])
+}
+
+/// Add the model's reason to each finding. Best effort: without an answer, the
+/// findings stand as they are.
+fn explain(url: &str, model: &str, findings: &mut [Finding]) {
+    for batch in findings.chunks_mut(12) {
+        let changes: Vec<(String, String, String)> =
+            batch.iter().map(|f| f.change.clone().unwrap_or_default()).collect();
+        let messages = reasons_prompt(&changes);
+        let Ok(raw) = ask_with(url, model, &messages, 60 * changes.len() as u32 + 100, REASONS_SCHEMA) else {
+            return;
+        };
+        for r in raw["reasons"].as_array().into_iter().flatten() {
+            let why = r["why"].as_str().unwrap_or("").trim();
+            if let Some(f) = r["n"]
+                .as_u64()
+                .and_then(|n| batch.get_mut((n as usize).checked_sub(1)?))
+            {
+                if !why.is_empty() && !f.message.ends_with('.') {
+                    let why = if why.ends_with(['.', '!', '?']) {
+                        why.to_string()
+                    } else {
+                        format!("{why}.")
+                    };
+                    f.message = format!("{} {why}", f.message);
+                }
+            }
+        }
+    }
+}
+
 fn ask(url: &str, model: &str, messages: &Value, text_chars: usize) -> Result<Value, String> {
-    let (ctx, predict) = sizes(messages, text_chars);
+    let predict = sizes(messages, text_chars).1;
+    ask_with(url, model, messages, predict, SCHEMA)
+}
+
+fn ask_with(url: &str, model: &str, messages: &Value, predict: u32, schema: &str) -> Result<Value, String> {
+    let chars: usize = messages
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|m| m["content"].as_str())
+        .map(str::len)
+        .sum();
+    let ctx = ((chars / 3) as u32 + predict).next_power_of_two().clamp(8192, 32768);
     let mut request = json!({
         "model": model,
         "messages": messages,
         "stream": false,
         // Qwen thinks before answering by default: much slower, and not needed here.
         "think": false,
-        "format": serde_json::from_str::<Value>(SCHEMA).expect("schema is JSON"),
+        "format": serde_json::from_str::<Value>(schema).expect("schema is JSON"),
         "options": { "temperature": 0, "num_ctx": ctx, "num_predict": predict },
     });
     let reply = loop {
@@ -664,6 +739,9 @@ pub fn review(args: &Value) -> ApiResult {
             Err(reason) => return unavailable(reason),
         };
         findings.extend(place(&body, &paras, &raw));
+    }
+    if !findings.is_empty() {
+        explain(&url, &model, &mut findings);
     }
     // The cache is a convenience: a review that can't be saved is still shown.
     if crate::ops::collab_dir(&root).is_ok() {
@@ -775,6 +853,7 @@ mod tests {
             line: 2,
             message: "Extra word.".into(),
             suggestion: "at the sight".into(),
+            change: None,
         }];
         // A line added above: found one line further down, with its fix.
         let body = "INT. HALL - DAY\n\nRain.\nJoanna turns away upon to the sight.";
@@ -880,9 +959,11 @@ mod tests {
         let body = "INT. HALL - DAY\n\nJoanna turns away upon to the sight.";
         let content = json!({ "paragraphs": [{ "n": 1, "text": "Joanna turns away from the sight." }]}).to_string();
         let tags = json!({ "models": [{ "name": "llama3.2:3b" }, { "name": "qwen3.6:27b" }] }).to_string();
+        let why = json!({ "reasons": [{ "n": 1, "why": "\u{2018}upon to\u{2019} is two prepositions" }] }).to_string();
         let (url, got) = fake(vec![
             (200, tags),
             (200, json!({ "message": { "content": content } }).to_string()),
+            (200, json!({ "message": { "content": why } }).to_string()),
         ]);
         let d = project();
         let args = json!({ "root": d.path(), "scene": "sc-1", "body": body, "url": url });
@@ -893,6 +974,10 @@ mod tests {
             (Some("qwen3.6:27b"), Some(false))
         );
         assert_eq!(v["findings"][0]["line"], 2);
+        assert_eq!(
+            v["findings"][0]["message"],
+            "\u{201c}upon to\u{201d} \u{2192} \u{201c}from\u{201d}? \u{2018}upon to\u{2019} is two prepositions."
+        );
         let _ = got.recv().unwrap(); // the tags
         let asked: Value = serde_json::from_str(&got.recv().unwrap()).unwrap();
         assert_eq!(
@@ -908,6 +993,12 @@ mod tests {
             .unwrap()
             .contains("Characters: Joanna Weston."));
         assert!(asked["options"]["num_ctx"].as_u64().unwrap() >= 8192);
+        // Then why: the change, with its paragraph.
+        let asked: Value = serde_json::from_str(&got.recv().unwrap()).unwrap();
+        assert_eq!(
+            asked["messages"][1]["content"],
+            "[1] In: Joanna turns away upon to the sight.\nChange: \u{201c}upon to\u{201d} \u{2192} \u{201c}from\u{201d}"
+        );
         // The same text again with the same model: from the cache, no request made.
         let again = review(&json!({ "root": d.path(), "scene": "sc-1", "body": body, "url": "http://127.0.0.1:9", "model": "qwen3.6:27b" })).unwrap();
         assert_eq!(

@@ -158,8 +158,9 @@ contact details: `contact:` in project.yaml, printed bottom left. The editor als
 through [Ollama](https://ollama.com), for grammar mistakes, typos and wrong words the
 checks miss ("turns away upon to the sight"), in dialogue as well as action. It's told
 to leave period language, the way characters speak and script fragments alone. Its notes
-are marked **AI** (dashed violet) alongside the check's, with a one-click change where
-there's a simple fix, and follow the text as you edit. It takes a couple of minutes a
+are marked **AI** (dashed violet) alongside the check's: each is the change it suggests
+and its reason ("“carries” → “carry”? The subject ‘Four men’ is plural."), with a
+one-click change, and they follow the text as you edit. It takes a couple of minutes a
 scene on a laptop; you can keep writing while it runs; reviewing unchanged text again is instant (reviews are kept in `.stagewright/ai/`,
 never shared). It uses Qwen 3.6 if installed (`ollama pull qwen3.6`), else Qwen 3 30B, or the model
 chosen under Production → Checks…, where the Ollama address can be changed too. If Ollama isn't

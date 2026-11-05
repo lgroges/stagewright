@@ -11,7 +11,7 @@ change, the cursor, is listed under 0.3.0.)
   (Qwen 3.6 or Qwen 3 through Ollama, on your computer) to correct grammar mistakes,
   typos and wrong words the checks miss, in dialogue as well as action, leaving period
   language and the way characters speak alone. Each change it suggests is a note
-  marked AI beside the check's, with a one-click fix. It takes a couple of minutes a
+  marked AI beside the check's, with the model's reason and a one-click fix. It takes a couple of minutes a
   scene on a laptop; you can keep writing while it runs;
   unchanged scenes aren't reviewed twice. If Ollama isn't running, it says so and the
   checks carry on as before. The Ollama address and model are under Production →

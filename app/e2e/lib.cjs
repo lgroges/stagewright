@@ -53,10 +53,13 @@ const handedOut = new Set();
 
 /** A port in `base`..`base + span` not already given out by this run, so two
  * servers in one suite can't end up on the same port. */
+// Ports Chromium refuses to load (net::ERR_UNSAFE_PORT) in the ranges the suites use.
+const UNSAFE = new Set([4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697]);
+
 function pickPort(base, span) {
   for (;;) {
     const p = base + Math.floor(Math.random() * span);
-    if (!handedOut.has(p)) {
+    if (!handedOut.has(p) && !UNSAFE.has(p)) {
       handedOut.add(p);
       return p;
     }

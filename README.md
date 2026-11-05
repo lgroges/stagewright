@@ -159,10 +159,10 @@ through [Ollama](https://ollama.com), for grammar mistakes, typos and wrong word
 checks miss ("turns away upon to the sight"), in dialogue as well as action. It's told
 to leave period language, the way characters speak and script fragments alone. Its notes
 are marked **AI** (dashed violet) alongside the check's, with a one-click change where
-there's a simple fix, and follow the text as you edit. You can keep writing while it
-runs; reviewing unchanged text again is instant (reviews are kept in `.stagewright/ai/`,
-never shared). It uses Qwen 3.6 if installed (`ollama pull qwen3.6`), or the model chosen
-under Production → Checks…, where the Ollama address can be changed too. If Ollama isn't
+there's a simple fix, and follow the text as you edit. It takes a couple of minutes a
+scene on a laptop; you can keep writing while it runs; reviewing unchanged text again is instant (reviews are kept in `.stagewright/ai/`,
+never shared). It uses Qwen 3.6 if installed (`ollama pull qwen3.6`), else Qwen 3 30B, or the model
+chosen under Production → Checks…, where the Ollama address can be changed too. If Ollama isn't
 running, Review says so and nothing else changes. The script isn't sent anywhere else.
 Switch it off for a project like any check (`ai-grammar`).
 

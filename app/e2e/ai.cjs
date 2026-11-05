@@ -28,11 +28,15 @@ function fakeOllama(port, delay) {
       if (req.url === "/api/tags") return reply({ models: [{ name: "qwen3.6:27b" }] });
       if (req.url === "/api/chat") {
         asked.push(JSON.parse(body));
-        const findings = [
-          { quote: "stamps papers without reading them", problem: "A missing article.", suggestion: "stamps the papers without reading them" },
-          { quote: "words the model made up", problem: "Not in the scene.", suggestion: "x" },
-        ];
-        return setTimeout(() => reply({ message: { role: "assistant", content: JSON.stringify({ findings }) } }), delay);
+        // Each paragraph back as sent, but one corrected, and one that isn't in the scene.
+        const req = JSON.parse(body);
+        const paragraphs = [...req.messages[1].content.matchAll(/^\[(\d+)\] (.*)$/gm)].map(([, n, text]) => ({
+          n: Number(n),
+          text: text.replace("stamps papers without", "stamps the papers without"),
+        }));
+        paragraphs.push({ n: 999, text: "Words the model made up." });
+        const content = JSON.stringify({ paragraphs });
+        return setTimeout(() => reply({ message: { role: "assistant", content } }), delay);
       }
       res.writeHead(404);
       res.end();
@@ -74,14 +78,14 @@ function fakeOllama(port, delay) {
     await until(() => sceneFile().includes("Night. A cramped office"), 2000, "a save during the review");
     check("the scene saves while the review runs", true);
     await page.waitForFunction(() => /1 note/.test(document.querySelector('[data-testid="ai-status"]')?.textContent ?? ""), null, { timeout: 10000 });
-    check("the review reports its notes, leaving out ones that misquote the scene", /qwen3\.6:27b: 1 note/.test(await status()), await status());
+    check("the review reports its notes, leaving out paragraphs that aren't in the scene", /qwen3\.6:27b: 1 note/.test(await status()), await status());
     const asked = ollama.asked[0];
-    check("it asked for JSON from the model, without thinking", asked?.model === "qwen3.6:27b" && asked.think === false && asked.format?.type === "object");
+    check("it asked for JSON from the model, without thinking", asked?.model === "qwen3.6:27b" && asked.think === false && asked.format?.type === "object" && asked.options.num_ctx >= 8192);
     check("and gave it the cast", asked.messages[1].content.includes("MORDECAI"));
 
     // 2. The note is underlined apart from the rules', and follows the edit made meanwhile
     await page.waitForSelector(".sw-ai");
-    check("its words are marked as an AI note", (await page.locator(".sw-ai").first().textContent()) === "stamps papers without reading them");
+    check("its words are marked as an AI note", (await page.locator(".sw-ai").first().textContent()) === "stamps papers");
     await snap("ai-1-note.png");
     await page.click('[data-testid="issue-count"]');
     await page.waitForSelector(".cm-panel-lint");

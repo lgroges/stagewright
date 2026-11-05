@@ -18,11 +18,26 @@ typos and wrong words, dialogue included.
   needs no network permission. The call runs outside the workspace lock (and on its own
   thread in `serve`), and outside the app's queue of calls, so saving and checking go
   on during a review.
-- **Constrained replies, checked.** The model must answer in a JSON schema (a quote,
-  the problem, a suggestion), with thinking off and temperature 0. A finding whose
-  quote isn't in the scene is dropped. Findings are placed by their quote each time
-  the scene is checked, so they follow edits and vanish when their words are changed,
-  and one a rule already flags in the same place isn't shown twice.
+- **The model corrects; Stagewright finds the changes.** The scene's action and
+  dialogue go as numbered paragraphs, four at a time; the model gives each back
+  corrected (a JSON schema, thinking off, temperature 0, a cap on the answer's
+  length), and a word-by-word comparison turns each change into a note with its
+  fix. Tried on Liam's laptop with Qwen 3 30B on a scene with four planted mistakes:
+  two to four found per run depending on the grouping (three with four at a time,
+  and with one at a time), and nothing changed in the scene without them. Asking for
+  a list of errors instead found none (whole scene) or three of four plus junk (by
+  paragraph), and once repeated itself until it ran out of room. It's a second pair
+  of eyes that misses things, not a proofread. A paragraph changed
+  too much (rewritten, not corrected) and changes to names in capitals are dropped.
+- **Small wording changes to the instructions changed the results** (a longer cast
+  list and two more "leave alone" items halved what it found), so the prompt is kept
+  as tested and its version is part of the cache key.
+- Notes are placed by their words (with a word either side) each time the scene is
+  checked, so they follow edits and vanish when their words are changed, and one a
+  rule already flags in the same place isn't shown twice.
+- **Models**: Qwen 3.6 if installed, else Qwen 3 30B, which is quick because it only
+  uses a small part of itself per word; a dense 27B (Gemma 3) took over ten minutes a
+  scene on the laptop. About two minutes a scene there, plus loading.
 - **Period language**: the prompt says not to flag archaic or period wording, dialect,
   or script fragments, and gives the script's title, format, English and character
   names. We didn't add a period setting yet (see ideas.md).

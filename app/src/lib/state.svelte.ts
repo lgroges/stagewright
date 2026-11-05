@@ -684,7 +684,7 @@ class AppState {
     const scene = this.scene?.id;
     if (!scene || !this.project || this.aiReview?.status === "busy") return;
     const model = this.aiModel;
-    this.aiReview = { scene, status: "busy", message: `Reviewing with ${model || "the local model"}… this can take a minute.` };
+    this.aiReview = { scene, status: "busy", message: `Reviewing with ${model || "the local model"}… on a laptop this can take a few minutes.` };
     const r = await ai.review({ root: this.project.root, scene, body, url: this.aiUrl, model });
     if (this.aiReview?.scene !== scene) return; // the project closed meanwhile
     if (r.ok) {

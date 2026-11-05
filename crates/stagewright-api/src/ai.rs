@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Bump when the prompt or schema changes, so cached reviews are redone.
-const PROMPT_VERSION: u32 = 1;
+const PROMPT_VERSION: u32 = 4;
 pub const DEFAULT_URL: &str = "http://127.0.0.1:11434";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,35 +93,140 @@ pub fn status(args: &Value) -> ApiResult {
     Ok(json!({ "ok": true, "url": url, "models": models }))
 }
 
-/// The model to use: the one asked for, else a Qwen 3.6 if installed, else the first.
+/// The model to use: the one asked for, else the best installed one for this
+/// (Qwen 3.6, then Qwen 3's 30B, which is quick on a laptop, then others), else the first.
 pub fn pick_model(asked: Option<&str>, installed: &[String]) -> Option<String> {
     if let Some(m) = asked.filter(|m| !m.is_empty()) {
         return Some(m.to_string());
     }
-    installed
+    const LIKED: &[&str] = &["qwen3.6", "qwen3:30b", "qwen3:", "gemma3:27b", "gemma3:12b"];
+    LIKED
         .iter()
-        .find(|m| m.starts_with("qwen3.6"))
+        .find_map(|p| installed.iter().find(|m| m.starts_with(p)))
         .or_else(|| installed.first())
         .cloned()
+}
+
+/// One paragraph of the scene as the model sees it: a run of action, a speech
+/// (its dialogue, without parentheticals), or a song's lyrics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Paragraph {
+    /// Who speaks or sings it; `None` for action.
+    pub who: Option<String>,
+    pub text: String,
+    /// Where its text is: (body line, start in `text`, column in the line), a
+    /// line's text running from its start to the next one's (less the joiner).
+    pub lines: Vec<(usize, usize, usize)>,
+}
+
+impl Paragraph {
+    /// The body line and column of the `text` range `from..to`, if it's on one line.
+    fn locate(&self, from: usize, to: usize) -> Option<(usize, usize)> {
+        let k = self.lines.iter().rposition(|&(_, start, _)| start <= from)?;
+        let (line, start, col) = self.lines[k];
+        let end = self.lines.get(k + 1).map_or(self.text.len(), |&(_, next, _)| next);
+        (to <= end).then_some((line, col + from - start))
+    }
+}
+
+/// The scene's action and dialogue, paragraph by paragraph. Headings, cues,
+/// transitions and the like aren't the model's business.
+pub fn paragraphs(body: &str) -> Vec<Paragraph> {
+    use stagewright_core::scene::{parse_body, Element};
+    let lines: Vec<&str> = body.split('\n').collect();
+    let mut out: Vec<Paragraph> = Vec::new();
+    let mut cur: Option<Paragraph> = None;
+    let mut who: Option<String> = None;
+    let flush = |cur: &mut Option<Paragraph>, out: &mut Vec<Paragraph>| {
+        if let Some(p) = cur.take().filter(|p| !p.text.trim().is_empty()) {
+            out.push(p);
+        }
+    };
+    for (i, el) in parse_body(body).iter().enumerate() {
+        let (kind_who, joiner, text) = match el {
+            Element::Direction { text, .. } => (None, " ", text.trim()),
+            Element::Dialogue(text) => (who.clone(), " ", text.trim()),
+            Element::Lyric(text) => (Some(who.clone().unwrap_or_else(|| "SONG".into())), " / ", text.trim()),
+            Element::Parenthetical(_) => continue,
+            Element::Cue(c) => {
+                flush(&mut cur, &mut out);
+                who = Some(c.name.clone());
+                continue;
+            }
+            Element::SongStart(s) => {
+                flush(&mut cur, &mut out);
+                who = Some(if s.singers.is_empty() {
+                    "SONG".into()
+                } else {
+                    s.singers.join(" & ")
+                });
+                continue;
+            }
+            _ => {
+                flush(&mut cur, &mut out);
+                if !matches!(el, Element::Blank) {
+                    who = None;
+                }
+                continue;
+            }
+        };
+        let Some(col) = lines.get(i).and_then(|l| l.find(text)) else {
+            continue;
+        };
+        match cur.as_mut().filter(|p| p.who == kind_who) {
+            Some(p) => {
+                p.text.push_str(joiner);
+                p.lines.push((i, p.text.len(), col));
+                p.text.push_str(text);
+            }
+            None => {
+                flush(&mut cur, &mut out);
+                cur = Some(Paragraph {
+                    who: kind_who,
+                    text: text.to_string(),
+                    lines: vec![(i, 0, col)],
+                });
+            }
+        }
+    }
+    flush(&mut cur, &mut out);
+    out
+}
+
+/// A scene is sent a few paragraphs at a time: a short answer is quicker to
+/// get right, and a model that starts repeating itself can't go on for long.
+pub fn chunks(paras: &[Paragraph]) -> Vec<std::ops::Range<usize>> {
+    let mut out = Vec::new();
+    let (mut start, mut chars) = (0, 0);
+    for (i, p) in paras.iter().enumerate() {
+        if i > start && (i - start == 4 || chars + p.text.len() > 1600) {
+            out.push(start..i);
+            (start, chars) = (i, 0);
+        }
+        chars += p.text.len();
+    }
+    if start < paras.len() {
+        out.push(start..paras.len());
+    }
+    out
 }
 
 const SCHEMA: &str = r#"{
   "type": "object",
   "properties": {
-    "findings": {
+    "paragraphs": {
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
-          "quote": {"type": "string"},
-          "problem": {"type": "string"},
-          "suggestion": {"type": "string"}
+          "n": {"type": "integer"},
+          "text": {"type": "string"}
         },
-        "required": ["quote", "problem", "suggestion"]
+        "required": ["n", "text"]
       }
     }
   },
-  "required": ["findings"]
+  "required": ["paragraphs"]
 }"#;
 
 fn format_name(meta: &ProjectMeta) -> &'static str {
@@ -129,84 +234,248 @@ fn format_name(meta: &ProjectMeta) -> &'static str {
     match meta.format {
         Format::Stage => "a stage play",
         Format::Film => "a screenplay",
-        Format::TvSingle => "a single-camera TV drama",
-        Format::TvMulti => "a multi-camera TV comedy",
+        Format::TvSingle => "a TV drama script",
+        Format::TvMulti => "a TV comedy script",
     }
 }
 
-/// The instructions and the scene, as chat messages.
-pub fn prompt(meta: &ProjectMeta, cast: &[Character], body: &str) -> Value {
-    let english = format!("{:?}", meta.dialect).to_lowercase();
-    let names: Vec<String> = cast
-        .iter()
-        .flat_map(|c| [Some(c.cue.clone()), c.name.clone(), c.short.clone()])
-        .flatten()
-        .collect();
+/// What the model is told about the scene beyond its text.
+#[derive(Debug, Default)]
+pub struct About<'a> {
+    pub synopsis: Option<&'a str>,
+    pub cast: &'a [Character],
+}
+
+/// The instructions and some of the scene (paragraphs `range`, numbered from 1
+/// for the whole scene), as chat messages.
+///
+/// The model gives each paragraph back corrected, and Stagewright finds what it
+/// changed. Tried on Qwen 3 30B against a scene with four planted mistakes, this
+/// found three or four of them in each run and changed nothing in the scene
+/// without; asked instead to list the errors, it found fewer, invented some, and
+/// asked about the whole scene at once, returned nothing.
+pub fn prompt(meta: &ProjectMeta, about: &About, paras: &[Paragraph], range: std::ops::Range<usize>) -> Value {
+    let english = format!("{:?}", meta.dialect);
     let system = format!(
-        "You are a careful copy editor for {kind} written in {english} English. \
-Find grammar mistakes, typos, missing or doubled words and wrong words in the scene. \
-\n\nReport only real errors. Do NOT report:\n\
-- period or archaic language, in dialogue or in quoted texts (thee, thou, hath, saith, cometh), unless it is misspelt for its own period;\n\
-- the way a character speaks (dialect, slang, fragments, deliberate repetition);\n\
-- sentence fragments in action or stage directions (scripts are written that way);\n\
-- names written in capitals, character cues, scene headings or formatting;\n\
-- style preferences or rewording that isn't fixing an error;\n\
-- spelling that is correct in {english} English.\n\n\
-For each error give: \"quote\", a few words copied exactly from the scene, character for character, \
-that contain the error (short, and unique in the scene if you can); \"problem\", one short sentence \
-saying what's wrong; \"suggestion\", the quote corrected (or an empty string if there's no simple fix). \
-If there are no errors, return an empty list. Answer only with JSON matching this schema: {SCHEMA}",
+        // Word for word as tested: small changes here change what the model finds.
+        "You are a careful copy editor for {kind} in {english} English. You will get some of the \
+scene's action and dialogue as numbered paragraphs. Return each paragraph, with its number, corrected \
+for grammar mistakes, typos, missing or doubled words and wrong words, and otherwise exactly as \
+written: change nothing else. Leave alone: period or archaic language (thee, thou, hath, saith, \
+cometh, \"we be in death\") unless it is misspelt even for its period; how a character speaks; \
+sentence fragments in action (scripts are written that way); names, and words in capitals; \
+{english} spelling.\nAnswer only with JSON matching this schema: {SCHEMA}",
         kind = format_name(meta),
     );
     let mut user = format!("The script: {}", meta.title);
     if let Some(sub) = meta.subtitle.as_deref().filter(|s| !s.trim().is_empty()) {
         user.push_str(&format!(" ({sub})"));
     }
-    user.push_str(". Judge from the scene when and where it is set.\n\n");
-    if !names.is_empty() {
-        user.push_str(&format!("Character names (not errors): {}.\n\n", names.join(", ")));
+    user.push('.');
+    if let Some(syn) = about.synopsis.map(str::trim).filter(|s| !s.is_empty()) {
+        user.push_str(&format!(" This scene: {}", syn.replace('\n', " ")));
     }
-    user.push_str("The scene:\n\n");
-    user.push_str(body);
+    user.push_str(" Judge from the script and the scene when and where it is set.");
+    // Ordinary-case names only: capitals are left alone anyway.
+    let names: Vec<&str> = about
+        .cast
+        .iter()
+        .filter_map(|c| c.short.as_deref().or(c.name.as_deref()))
+        .filter(|n| n.chars().any(char::is_lowercase))
+        .collect();
+    if !names.is_empty() {
+        user.push_str(&format!("\nCharacters: {}.", names.join(", ")));
+    }
+    let numbered: Vec<String> = range
+        .map(|n| {
+            let p = &paras[n];
+            format!(
+                "[{}] {}{}",
+                n + 1,
+                p.who.as_ref().map(|w| format!("{w}: ")).unwrap_or_default(),
+                p.text
+            )
+        })
+        .collect();
+    user.push_str("\n\n");
+    user.push_str(&numbered.join("\n\n"));
     json!([
         { "role": "system", "content": system },
         { "role": "user", "content": user },
     ])
 }
 
-/// Where the model's findings are in `body`: ones whose quote isn't there (the
-/// model misquoted, or invented it) are dropped, as are non-fixes.
-pub fn place(body: &str, raw: &Value) -> Vec<Finding> {
-    let lines: Vec<&str> = body.split('\n').collect();
-    let mut out: Vec<Finding> = Vec::new();
-    for f in raw["findings"].as_array().into_iter().flatten() {
-        let quote = f["quote"].as_str().unwrap_or("").trim();
-        let message = f["problem"].as_str().unwrap_or("").trim();
-        let mut suggestion = f["suggestion"].as_str().unwrap_or("").trim().to_string();
-        if quote.is_empty() || message.is_empty() {
+/// Words and punctuation, as byte ranges.
+fn tokens(s: &str) -> Vec<std::ops::Range<usize>> {
+    let mut out = Vec::new();
+    let mut it = s.char_indices().peekable();
+    while let Some((i, c)) = it.next() {
+        if c.is_whitespace() {
             continue;
         }
-        let Some(line) = lines.iter().position(|l| l.contains(quote)) else {
-            continue;
-        };
-        if suggestion == quote {
-            suggestion.clear();
-            // "Fine as it is" with nothing to change is the model second-guessing itself.
-            if message.to_lowercase().contains("correct") {
-                continue;
+        let mut end = i + c.len_utf8();
+        if c.is_alphanumeric() {
+            while let Some(&(j, d)) = it.peek() {
+                let inner = matches!(d, '\'' | '\u{2019}' | '-')
+                    && s[j + d.len_utf8()..].chars().next().is_some_and(char::is_alphanumeric);
+                if d.is_alphanumeric() || inner {
+                    end = j + d.len_utf8();
+                    it.next();
+                } else {
+                    break;
+                }
             }
         }
-        if out.iter().any(|o| o.quote == quote) {
-            continue;
-        }
-        out.push(Finding {
-            quote: quote.to_string(),
-            line,
-            message: message.to_string(),
-            suggestion,
-        });
+        out.push(i..end);
     }
     out
+}
+
+/// Tokens compare alike whichever apostrophes and quotes the model used.
+fn same(a: &str, b: &str) -> bool {
+    let norm = |s: &str| {
+        s.replace(['\u{2019}', '\u{2018}'], "'")
+            .replace(['\u{201c}', '\u{201d}'], "\"")
+    };
+    norm(a) == norm(b)
+}
+
+/// The changed runs between two token lists: (old range, new range), by
+/// longest common subsequence.
+fn hunks(old: &[&str], new: &[&str]) -> Vec<(std::ops::Range<usize>, std::ops::Range<usize>)> {
+    let (n, m) = (old.len(), new.len());
+    let mut lcs = vec![vec![0u16; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            lcs[i][j] = if same(old[i], new[j]) {
+                lcs[i + 1][j + 1] + 1
+            } else {
+                lcs[i + 1][j].max(lcs[i][j + 1])
+            };
+        }
+    }
+    let (mut i, mut j) = (0, 0);
+    let mut out = Vec::new();
+    let mut open: Option<(usize, usize)> = None;
+    while i < n || j < m {
+        if i < n && j < m && same(old[i], new[j]) {
+            if let Some((a, b)) = open.take() {
+                out.push((a..i, b..j));
+            }
+            i += 1;
+            j += 1;
+            continue;
+        }
+        open.get_or_insert((i, j));
+        if j < m && (i == n || lcs[i][j + 1] >= lcs[i + 1][j]) {
+            j += 1;
+        } else {
+            i += 1;
+        }
+    }
+    if let Some((a, b)) = open {
+        out.push((a..n, b..m));
+    }
+    out
+}
+
+/// What the model changed in each paragraph, as findings on the body: each
+/// change with a word either side (more if needed to tell it apart on its line).
+/// A paragraph rewritten rather than corrected, changes to words in capitals
+/// (names), and changes that run across lines are dropped.
+pub fn place(body: &str, paras: &[Paragraph], raw: &Value) -> Vec<Finding> {
+    let lines: Vec<&str> = body.split('\n').collect();
+    let mut out: Vec<Finding> = Vec::new();
+    for r in raw["paragraphs"].as_array().into_iter().flatten() {
+        let Some(p) = r["n"].as_u64().and_then(|n| paras.get((n as usize).checked_sub(1)?)) else {
+            continue;
+        };
+        let mut text = r["text"].as_str().unwrap_or("").trim();
+        // The model may repeat the speaker it was shown.
+        if let Some(who) = &p.who {
+            text = text
+                .strip_prefix(&format!("{who}:"))
+                .map(str::trim_start)
+                .unwrap_or(text);
+        }
+        if text.is_empty() {
+            continue;
+        }
+        let (ot, nt) = (tokens(&p.text), tokens(text));
+        let old: Vec<&str> = ot.iter().map(|r| &p.text[r.clone()]).collect();
+        let new: Vec<&str> = nt.iter().map(|r| &text[r.clone()]).collect();
+        let hs = hunks(&old, &new);
+        let changed: usize = hs.iter().map(|(a, b)| a.len().max(b.len())).sum();
+        if hs.is_empty() || changed > (old.len() / 4).max(4) {
+            continue; // unchanged, or rewritten rather than corrected
+        }
+        for (a, b) in hs {
+            if a.clone()
+                .any(|i| old[i].chars().any(char::is_uppercase) && !old[i].chars().any(char::is_lowercase))
+            {
+                continue; // a name in capitals
+            }
+            // A word of context either side, widened until it's unique on its line.
+            let (mut ca, mut cb) = (1, 1);
+            let found = loop {
+                let (oa, ob) = (a.start.saturating_sub(ca), (a.end + cb).min(old.len()));
+                let (na, nb) = (b.start - (a.start - oa), b.end + (ob - a.end));
+                if oa >= ob {
+                    break None;
+                }
+                let (from, to) = (ot[oa].start, ot[ob - 1].end);
+                let Some((line, col)) = p.locate(from, to) else {
+                    break None;
+                };
+                let quote = &p.text[from..to];
+                let suggestion = if na < nb {
+                    &text[nt[na].start..nt[nb - 1].end]
+                } else {
+                    ""
+                };
+                let unique = lines[line].matches(quote).count() == 1;
+                if unique || (oa == 0 && ob == old.len()) {
+                    debug_assert_eq!(&lines[line][col..col + quote.len()], quote);
+                    break Some((line, quote.to_string(), suggestion.to_string()));
+                }
+                (ca, cb) = (ca + 1, cb + 1);
+            };
+            let Some((line, quote, suggestion)) = found else {
+                continue;
+            };
+            let was = old[a.clone()].join(" ");
+            let now = new[b.clone()].join(" ");
+            let message = match (was.is_empty(), now.is_empty()) {
+                (true, _) => format!("Add \u{201c}{now}\u{201d}?"),
+                (_, true) => format!("Remove \u{201c}{was}\u{201d}?"),
+                _ => format!("\u{201c}{was}\u{201d} \u{2192} \u{201c}{now}\u{201d}?"),
+            };
+            if !out.iter().any(|o| o.quote == quote && o.line == line) {
+                out.push(Finding {
+                    quote,
+                    line,
+                    message,
+                    suggestion,
+                });
+            }
+        }
+    }
+    out
+}
+
+/// Enough context for a chunk and its answer (Ollama's default, 4,096 tokens,
+/// can be too small), and a cap on the answer: about the length of the text.
+fn sizes(messages: &Value, text_chars: usize) -> (u32, u32) {
+    let chars: usize = messages
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|m| m["content"].as_str())
+        .map(str::len)
+        .sum();
+    let predict = (text_chars / 2 + 200) as u32;
+    let ctx = ((chars / 3) as u32 + predict).next_power_of_two().clamp(8192, 32768);
+    (ctx, predict)
 }
 
 /// The findings as script-check issues on `body` as it is now: each one found
@@ -273,6 +542,50 @@ fn cache_key(model: &str, messages: &Value) -> String {
     format!("{:016x}", h.finish())
 }
 
+/// One request: the model's answer as JSON, or why there isn't one.
+fn ask(url: &str, model: &str, messages: &Value, text_chars: usize) -> Result<Value, String> {
+    let (ctx, predict) = sizes(messages, text_chars);
+    let mut request = json!({
+        "model": model,
+        "messages": messages,
+        "stream": false,
+        // Qwen thinks before answering by default: much slower, and not needed here.
+        "think": false,
+        "format": serde_json::from_str::<Value>(SCHEMA).expect("schema is JSON"),
+        "options": { "temperature": 0, "num_ctx": ctx, "num_predict": predict },
+    });
+    let reply = loop {
+        // On a laptop the first call loads the model, which can take a minute.
+        let mut res = match agent(Duration::from_secs(600))
+            .post(format!("{url}/api/chat"))
+            .send_json(&request)
+        {
+            Ok(r) => r,
+            Err(ureq::Error::Timeout(_)) => {
+                return Err(format!("{model} took more than ten minutes; try a smaller model."))
+            }
+            Err(e) => return Err(unreachable(url, &e)),
+        };
+        let status_code = res.status().as_u16();
+        let reply: Value = res
+            .body_mut()
+            .read_json()
+            .map_err(|e| format!("Ollama gave an unexpected reply ({e})."))?;
+        if status_code == 200 {
+            break reply;
+        }
+        let why = reply["error"].as_str().unwrap_or("unknown error");
+        // An older Ollama, or a model that can't be told not to think: ask again without.
+        if why.contains("think") && request.as_object_mut().and_then(|r| r.remove("think")).is_some() {
+            continue;
+        }
+        return Err(format!("Ollama couldn't run {model}: {why}"));
+    };
+    let content = reply["message"]["content"].as_str().unwrap_or("");
+    serde_json::from_str(content)
+        .map_err(|_| format!("{model} didn't answer in the expected form; try again or another model."))
+}
+
 /// Review one scene. Args: `root`, `scene` (id), `body` (the text as in the
 /// editor), optional `model` and `url`.
 pub fn review(args: &Value) -> ApiResult {
@@ -283,13 +596,9 @@ pub fn review(args: &Value) -> ApiResult {
     if !root.join("project.yaml").is_file() {
         return Err(ApiError::new("bad_args", "not a project folder"));
     }
-    let meta: ProjectMeta =
-        serde_yaml::from_str(&std::fs::read_to_string(root.join("project.yaml")).unwrap_or_default())
-            .map_err(|e| ApiError::new("invalid_yaml", e.to_string()))?;
-    let cast: Vec<Character> = std::fs::read_to_string(root.join("characters.yaml"))
-        .ok()
-        .and_then(|t| serde_yaml::from_str::<Option<Vec<Character>>>(&t).ok().flatten())
-        .unwrap_or_default();
+    let project =
+        stagewright_core::project::Project::load(&root).map_err(|e| ApiError::new("project", e.to_string()))?;
+    let meta = &project.meta;
     if meta.checks.off.iter().any(|c| c == "ai-grammar") {
         return Ok(
             json!({ "ok": false, "off": true, "reason": "The AI review is switched off for this project (Production → Checks)." }),
@@ -314,8 +623,27 @@ pub fn review(args: &Value) -> ApiResult {
             }
         }
     };
-    let messages = prompt(&meta, &cast, &body);
-    let key = cache_key(&model, &messages);
+    let paras = paragraphs(&body);
+    if paras.is_empty() {
+        return Ok(json!({ "ok": true, "findings": [], "cached": false, "model": model }));
+    }
+    let synopsis = project
+        .scenes
+        .iter()
+        .find(|s| s.scene.meta.id == scene)
+        .and_then(|s| s.scene.meta.synopsis.as_deref());
+    let about = About {
+        synopsis,
+        cast: &project.characters,
+    };
+    let parts: Vec<(Value, usize)> = chunks(&paras)
+        .into_iter()
+        .map(|r| {
+            let chars = paras[r.clone()].iter().map(|p| p.text.len()).sum();
+            (prompt(meta, &about, &paras, r), chars)
+        })
+        .collect();
+    let key = cache_key(&model, &Value::Array(parts.iter().map(|(m, _)| m.clone()).collect()));
     let cache = cache_path(&root, scene);
     if let Some(hit) = std::fs::read_to_string(&cache)
         .ok()
@@ -324,54 +652,14 @@ pub fn review(args: &Value) -> ApiResult {
     {
         return Ok(json!({ "ok": true, "findings": hit["findings"], "cached": true, "model": model }));
     }
-    let mut request = json!({
-        "model": model,
-        "messages": messages,
-        "stream": false,
-        // Qwen 3.6 thinks before answering by default: slower, and no better at this.
-        "think": false,
-        "format": serde_json::from_str::<Value>(SCHEMA).expect("schema is JSON"),
-        "options": { "temperature": 0 },
-    });
-    let reply = loop {
-        // A long scene on a laptop can take a while (and the first call loads the model).
-        let mut res = match agent(Duration::from_secs(600))
-            .post(format!("{url}/api/chat"))
-            .send_json(&request)
-        {
-            Ok(r) => r,
-            Err(ureq::Error::Timeout(_)) => {
-                return unavailable(format!(
-                    "{model} took more than ten minutes on this scene; try a smaller model."
-                ));
-            }
-            Err(e) => return unavailable(unreachable(&url, &e)),
+    let mut findings = Vec::new();
+    for (messages, chars) in &parts {
+        let raw = match ask(&url, &model, messages, *chars) {
+            Ok(raw) => raw,
+            Err(reason) => return unavailable(reason),
         };
-        let status_code = res.status().as_u16();
-        let reply: Value = match res.body_mut().read_json() {
-            Ok(v) => v,
-            Err(e) => return unavailable(format!("Ollama gave an unexpected reply ({e}).")),
-        };
-        if status_code == 200 {
-            break reply;
-        }
-        let why = reply["error"].as_str().unwrap_or("unknown error");
-        // An older Ollama, or a model that can't be told not to think: ask again without.
-        if why.contains("think") && request.as_object_mut().and_then(|r| r.remove("think")).is_some() {
-            continue;
-        }
-        return unavailable(format!("Ollama couldn't run {model}: {why}"));
-    };
-    let content = reply["message"]["content"].as_str().unwrap_or("");
-    let raw: Value = match serde_json::from_str(content) {
-        Ok(v) => v,
-        Err(_) => {
-            return unavailable(format!(
-                "{model} didn't answer in the expected form; try again or another model."
-            ))
-        }
-    };
-    let findings = place(&body, &raw);
+        findings.extend(place(&body, &paras, &raw));
+    }
     // The cache is a convenience: a review that can't be saved is still shown.
     if crate::ops::collab_dir(&root).is_ok() {
         if let Some(dir) = cache.parent() {
@@ -390,17 +678,89 @@ mod tests {
     use super::*;
 
     #[test]
-    fn findings_must_quote_the_scene() {
-        let body = "INT. HALL - DAY\n\nJoanna turns away upon to the sight.\n\nDEE\nThou art come.";
-        let raw = json!({ "findings": [
-            { "quote": "turns away upon to the sight", "problem": "Extra word.", "suggestion": "turns away from the sight" },
-            { "quote": "words that aren't there", "problem": "Invented.", "suggestion": "x" },
-            { "quote": "Thou art come", "problem": "This is correct period English.", "suggestion": "Thou art come" },
-            { "quote": "turns away upon to the sight", "problem": "Twice.", "suggestion": "" }
+    fn changes_become_findings() {
+        let body = "INT. HALL - DAY\n\nFour men carries a plain coffin.\nA dog and a cat by a open door.\n\nDEE\nThou art come.\n\nJOHN F W watches.\n\nRain falls on the roof.";
+        let paras = paragraphs(body);
+        let raw = json!({ "paragraphs": [
+            // Two corrections, one needing more context to be unique on its line.
+            { "n": 1, "text": "Four men carry a plain coffin. A dog and a cat by an open door." },
+            // Unchanged; the speaker repeated.
+            { "n": 2, "text": "DEE: Thou art come." },
+            // A name in capitals: left alone.
+            { "n": 3, "text": "JOHN FRANCIS watches." },
+            // Rewritten, not corrected: dropped.
+            { "n": 4, "text": "Heavy rain hammers down upon the old slate tiles." },
+            { "n": 9, "text": "Invented." }
         ]});
-        let f = place(body, &raw);
-        assert_eq!(f.len(), 1);
-        assert_eq!((f[0].line, f[0].suggestion.as_str()), (2, "turns away from the sight"));
+        let f = place(body, &paras, &raw);
+        let got: Vec<(usize, &str, &str, &str)> = f
+            .iter()
+            .map(|f| (f.line, f.quote.as_str(), f.suggestion.as_str(), f.message.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                (
+                    2,
+                    "men carries a",
+                    "men carry a",
+                    "\u{201c}carries\u{201d} \u{2192} \u{201c}carry\u{201d}?"
+                ),
+                (
+                    3,
+                    "by a open",
+                    "by an open",
+                    "\u{201c}a\u{201d} \u{2192} \u{201c}an\u{201d}?"
+                ),
+            ]
+        );
+        // An added or removed word.
+        let paras = paragraphs("The ADMIRAL stamps papers.\n\nShe turns away upon to the sight.");
+        let raw = json!({ "paragraphs": [
+            { "n": 1, "text": "The ADMIRAL stamps the papers." },
+            { "n": 2, "text": "She turns away upon the sight." }
+        ]});
+        let f = place(
+            "The ADMIRAL stamps papers.\n\nShe turns away upon to the sight.",
+            &paras,
+            &raw,
+        );
+        assert_eq!(
+            (f[0].quote.as_str(), f[0].suggestion.as_str()),
+            ("stamps papers", "stamps the papers")
+        );
+        assert_eq!(f[0].message, "Add \u{201c}the\u{201d}?");
+        assert_eq!(
+            (f[1].quote.as_str(), f[1].suggestion.as_str(), f[1].line),
+            ("upon to the", "upon the", 2)
+        );
+    }
+
+    #[test]
+    fn the_model_sees_action_and_speeches() {
+        let body = "INT. HALL - DAY\n\nRain.\n!Wind.\n\nDEE\n(quietly)\nThou art come.\nSit.\n\n> CUT TO:\n\n~ SONG \"Hymn\" [JANE]\n~ Abide with me\n~ Fast falls\n~ END SONG";
+        let p = paragraphs(body);
+        type Row<'a> = (Option<&'a str>, &'a str, Vec<(usize, usize, usize)>);
+        let got: Vec<Row> = p
+            .iter()
+            .map(|p| (p.who.as_deref(), p.text.as_str(), p.lines.clone()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                (None, "Rain. Wind.", vec![(2, 0, 0), (3, 6, 1)]),
+                (Some("DEE"), "Thou art come. Sit.", vec![(7, 0, 0), (8, 15, 0)]),
+                (
+                    Some("JANE"),
+                    "Abide with me / Fast falls",
+                    vec![(13, 0, 2), (14, 16, 2)]
+                ),
+            ]
+        );
+        assert_eq!(p[0].locate(6, 11), Some((3, 1)));
+        assert_eq!(p[0].locate(0, 11), None, "across lines");
+        let many: Vec<Paragraph> = (0..20).map(|_| p[0].clone()).collect();
+        assert_eq!(chunks(&many), vec![0..4, 4..8, 8..12, 12..16, 16..20]);
     }
 
     #[test]
@@ -443,12 +803,25 @@ mod tests {
         assert_eq!(pick_model(Some("gemma4"), &installed).as_deref(), Some("gemma4"));
         assert_eq!(pick_model(None, &[]), None);
         let meta: ProjectMeta = serde_yaml::from_str("title: T\nformat: tv-single\n").unwrap();
-        let m = prompt(&meta, &[], "Rain.");
+        let m = prompt(
+            &meta,
+            &About {
+                synopsis: Some("A funeral."),
+                cast: &[],
+            },
+            &paragraphs("Rain."),
+            0..1,
+        );
         assert!(m[0]["content"]
             .as_str()
             .unwrap()
-            .contains("single-camera TV drama written in british English"));
-        assert!(m[1]["content"].as_str().unwrap().ends_with("Rain."));
+            .contains("a TV drama script in British English"));
+        let user = m[1]["content"].as_str().unwrap();
+        assert!(
+            user.contains("This scene: A funeral.") && user.ends_with("\n\n[1] Rain."),
+            "{user}"
+        );
+        assert_eq!(sizes(&m, 5), (8192, 202));
     }
 
     /// A stand-in for Ollama that answers each request in turn with the given
@@ -500,10 +873,7 @@ mod tests {
     #[test]
     fn a_review_end_to_end() {
         let body = "INT. HALL - DAY\n\nJoanna turns away upon to the sight.";
-        let content = json!({ "findings": [
-            { "quote": "upon to the sight", "problem": "Two prepositions.", "suggestion": "from the sight" }
-        ]})
-        .to_string();
+        let content = json!({ "paragraphs": [{ "n": 1, "text": "Joanna turns away from the sight." }]}).to_string();
         let tags = json!({ "models": [{ "name": "llama3.2:3b" }, { "name": "qwen3.6:27b" }] }).to_string();
         let (url, got) = fake(vec![
             (200, tags),
@@ -531,7 +901,8 @@ mod tests {
         assert!(asked["messages"][1]["content"]
             .as_str()
             .unwrap()
-            .contains("JOANNA, Joanna Weston"));
+            .contains("Characters: Joanna Weston."));
+        assert!(asked["options"]["num_ctx"].as_u64().unwrap() >= 8192);
         // The same text again with the same model: from the cache, no request made.
         let again = review(&json!({ "root": d.path(), "scene": "sc-1", "body": body, "url": "http://127.0.0.1:9", "model": "qwen3.6:27b" })).unwrap();
         assert_eq!(
@@ -559,7 +930,7 @@ mod tests {
         let v = ask(&url);
         assert!(v["reason"].as_str().unwrap().contains("expected form"), "{v}");
         // Told not to think by a model that can't: asked again without.
-        let content = json!({ "findings": [] }).to_string();
+        let content = json!({ "paragraphs": [] }).to_string();
         let (url, got) = fake(vec![
             (
                 400,

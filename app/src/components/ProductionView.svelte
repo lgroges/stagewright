@@ -177,7 +177,7 @@
           <label>
             Model
             <select bind:value={aiModel} onchange={() => app.setAi(aiUrl, aiModel)} data-testid="ai-model">
-              <option value="">Qwen 3.6, if installed</option>
+              <option value="">The best installed (Qwen 3.6, Qwen 3 …)</option>
               {#if aiStatus?.ok}
                 {#each aiStatus.models as m (m)}<option value={m}>{m}</option>{/each}
               {/if}

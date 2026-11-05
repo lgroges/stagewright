@@ -26,8 +26,12 @@ typos and wrong words, dialogue included.
   two to four found per run depending on the grouping (three with four at a time,
   and with one at a time), and nothing changed in the scene without them. Asking for
   a list of errors instead found none (whole scene) or three of four plus junk (by
-  paragraph), and once repeated itself until it ran out of room. It's a second pair
-  of eyes that misses things, not a proofread. A paragraph changed
+  paragraph), and once repeated itself until it ran out of room. Qwen 3.6 (35B) did
+  better and faster: all four in that scene, four of five in a comic stage scene
+  (Qwen 3: three), nothing changed in the clean scene, and dialect ("He don't care")
+  left alone by both; about 1½ minutes a scene once loaded. It's a second pair of
+  eyes that misses things, not a proofread. The model sometimes echoes the paragraph
+  number into its answer; that's stripped. A paragraph changed
   too much (rewritten, not corrected) and changes to names in capitals are dropped.
 - **Small wording changes to the instructions changed the results** (a longer cast
   list and two more "leave alone" items halved what it found), so the prompt is kept
@@ -37,7 +41,7 @@ typos and wrong words, dialogue included.
   rule already flags in the same place isn't shown twice.
 - **Models**: Qwen 3.6 if installed, else Qwen 3 30B, which is quick because it only
   uses a small part of itself per word; a dense 27B (Gemma 3) took over ten minutes a
-  scene on the laptop. About two minutes a scene there, plus loading.
+  scene on the laptop.
 - **Period language**: the prompt says not to flag archaic or period wording, dialect,
   or script fragments, and gives the script's title, format, English and character
   names. We didn't add a period setting yet (see ideas.md).

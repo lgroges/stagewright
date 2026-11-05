@@ -391,7 +391,12 @@ pub fn place(body: &str, paras: &[Paragraph], raw: &Value) -> Vec<Finding> {
             continue;
         };
         let mut text = r["text"].as_str().unwrap_or("").trim();
-        // The model may repeat the speaker it was shown.
+        // The model may repeat the number and the speaker it was shown.
+        if let Some(rest) = text.strip_prefix('[').and_then(|t| t.split_once(']')) {
+            if rest.0.trim().chars().all(|c| c.is_ascii_digit()) {
+                text = rest.1.trim_start();
+            }
+        }
         if let Some(who) = &p.who {
             text = text
                 .strip_prefix(&format!("{who}:"))
@@ -684,8 +689,8 @@ mod tests {
         let raw = json!({ "paragraphs": [
             // Two corrections, one needing more context to be unique on its line.
             { "n": 1, "text": "Four men carry a plain coffin. A dog and a cat by an open door." },
-            // Unchanged; the speaker repeated.
-            { "n": 2, "text": "DEE: Thou art come." },
+            // Unchanged; the number and speaker repeated.
+            { "n": 2, "text": "[2] DEE: Thou art come." },
             // A name in capitals: left alone.
             { "n": 3, "text": "JOHN FRANCIS watches." },
             // Rewritten, not corrected: dropped.

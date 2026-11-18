@@ -19,7 +19,13 @@ The plan is in [plans/context-and-ai.md](plans/context-and-ai.md). Settled so fa
   where it actually lands.
 - **Research is Liam's own notes for now**, with sources written in; no files.
 - **Notes are edited in Stagewright**, with `[[` links (Obsidian's syntax).
-- **The editorial read leaves comments**, not fixes.
+- **The editorial read leaves comments**, not fixes, and can run over a scene or a
+  whole act.
+- **A TV series has a beat sheet per episode and one for the series.**
+- **Research from Claude sessions comes in through the `stagewright-projects` skill**,
+  which will write notes in the format into `research/`.
+- Storyboards and drafted scenes (ideas.md) would need a proper shooting-script stage
+  first; recorded as its own idea.
 
 ## 2026-11-05 · An AI review, on a local model
 

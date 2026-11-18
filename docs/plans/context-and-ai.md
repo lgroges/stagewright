@@ -54,7 +54,7 @@ links. Ids are unique across the project; links use ids.
 | --- | --- | --- | --- |
 | Character | `characters.yaml` (as now) | id, cue, name, short, description, track, + `age`, `role` | `characters/<id>.md` |
 | Location | `locations.yaml` (as now) | id, name, + `period`, `description` | `locations/<id>.md` |
-| Beat | `plan/beats.yaml` | id, title, summary, purpose, target, scenes, episode | — (summary and purpose are enough to start) |
+| Beat | `plan/beats.yaml`; a series' episodes also `plan/episodes/<EE>.yaml` | id, title, summary, purpose, target, scenes (or episodes) | — (summary and purpose are enough to start) |
 | Research note | `research/<id>.md` | title, tags, sources (text), links | the note itself |
 | Scene | `.scene` files (as now) | synopsis, notes … | the script |
 
@@ -93,8 +93,11 @@ with no page is just its line in characters.yaml.
 
 - **Templates** fill in a starting list, all editable, none enforced: Save the Cat
   (15 beats), three acts, Dan Harmon's Story Circle (8), Freytag's pyramid, blank.
-- **Target** is a share of the running length (0–1): pages for screen, minutes for
-  stage, the episode for TV beats (`episode:` set) or the series for series beats.
+- **A TV series has a sheet for the series and one per episode**: `plan/beats.yaml`
+  for the series' arc (its beats list episodes or scenes) and `plan/episodes/01.yaml`
+  and so on for each episode, each from its own template. A play or film has one.
+- **Target** is a share of the sheet's length (0–1): pages for screen, minutes for
+  stage; the episode for an episode's sheet, the whole series for the series sheet.
 - **Where it lands**: the start of its first scene, as a share of the length, shown
   against the target ("Catalyst: page 19, aimed at 12"). No scenes yet: not shown.
 - **Make scenes from beats**: a beat with no scenes can make an outline scene in the
@@ -131,6 +134,11 @@ research with the script, which helps research sessions with Claude too.
 - **Context**: the scene; its beat; its characters' and location's pages; research
   linked to any of those; the scenes either side (or their synopses); the project's
   title, format and dialect. Stable parts first, so they're cached between scenes.
+- **A scene or a whole act in one go.** For an act, the shared context (the act's
+  characters, locations, beats and research) goes first and is cached, then each scene
+  in order with the scenes before it in the act, so continuity within the act is
+  checked too. The app shows progress scene by scene and the estimated cost before it
+  starts.
 - **Cost** (Sonnet 5.5, $2 / $10 per million tokens): about 30,000 tokens a scene, so
   about 6–7p, about 2p when the context is cached (reviewing several scenes in a
   sitting). A whole-script continuity pass (about 150,000 tokens) about 25–30p a run,
@@ -140,10 +148,17 @@ research with the script, which helps research sessions with Claude too.
 - **Tests**: a project with planted continuity slips (an age that changes, a character
   who knows something before they're told), checked like the copy-edit was.
 
+## Research from Claude sessions
+
+Research done with Claude elsewhere comes into the project through the
+`stagewright-projects` skill: asked to, it writes the findings as research notes in
+the format (`research/<id>.md`, with title, sources, tags and links to the project's
+characters, locations and scenes by id) and puts them in the project's `research/`
+folder when the session can reach it, or hands back the files to drop in. So the
+format change in 0.10.0 also teaches the skill how to write a note and check that its
+links exist.
+
 ## Open questions
 
-- Series beat sheets: one sheet per episode plus a series sheet, or one sheet with
-  `episode:` on each beat (as above)?
-- Should the editorial read run on a selection of scenes in one go (an act), with one
-  cached context?
-- Research notes from Claude sessions: a way to import a chat's findings as notes.
+None at the moment. (Answered 2026-11-18: a sheet per episode and one for the series;
+the editorial read can run over an act; research comes in through the skill.)

@@ -23,8 +23,15 @@ it's settled, either built or turned down for good.
   library the editorial read draws on (the relevant passages put in its context,
   cached), not training. Copyright: summaries and principles in our own words, not
   copied text, unless the material is Liam's or licensed.
+- **From script to shooting script**: a way to take a script as written to a shooting
+  script, which storyboards and drafted scenes would need first (Liam, 2026-11-18).
+  Today `shooting_script: true` only changes the checks and prints scene numbers. A
+  real transition would mean locking scene numbers (new scenes become 12A, omitted ones
+  stay as OMITTED), a shot list per scene (shot, size, angle, movement, who and what's
+  in it), revisions marked by colour and date, and an export of the shot lists.
 - **AI storyboards and scenes**: generated storyboard frames for a scene, and drafted
-  scenes (from a beat or a synopsis, say). Raised by Liam on 2026-11-18. Storyboards
+  scenes (from a beat or a synopsis, say). Raised by Liam on 2026-11-18. Needs the
+  shooting script above first: storyboards are drawn from a shot list. Storyboards
   need an image model, which Claude isn't (a local one through ComfyUI, or a hosted
   image API). Drafting scenes is a change of stance: so far the AI comments on the
   writing and doesn't write it (since the first plan, 2026-11-01).

@@ -149,6 +149,24 @@ pub fn check_project(root: &Path) -> ApiResult {
             );
         }
     }
+    if !ctx.off.contains("broken-link") {
+        // Notes: links to records that don't exist, and ids used twice.
+        if let Ok(notes) = stagewright_core::context::Notes::load(root) {
+            let web = stagewright_core::context::Web::build(&p, &notes);
+            for (from, to) in web.broken() {
+                let name = web.node(&from).map_or(from.clone(), |n| n.name.clone());
+                let message = format!(
+                    "{name} links to \u{201c}{to}\u{201d}, which isn't a character, place, scene, beat or note."
+                );
+                out.push(project_issue("broken-link", message, "Notes", &name));
+            }
+            for id in web.duplicates() {
+                let message =
+                    format!("\u{201c}{id}\u{201d} is the id of more than one record, so links to it are ambiguous.");
+                out.push(project_issue("broken-link", message, "Notes", &id));
+            }
+        }
+    }
     Ok(json!({ "issues": out, "warnings": warnings, "infos": infos, "checks": checks_json(&p) }))
 }
 

@@ -5,7 +5,7 @@ holds and how to put the script together in order. Keep it current: any change t
 the files the app reads or writes updates this page (and its version) in the same
 commit.
 
-**Format version 6** · last changed in Stagewright 0.9.0 (unreleased)
+**Format version 7** · last changed in Stagewright 0.10.0 (unreleased)
 
 ## A project is a folder
 
@@ -16,6 +16,11 @@ my-play/
   locations.yaml        places
   songs.yaml            musical numbers (musicals)
   comments.yaml         comment threads on the script (may be absent)
+  characters/<id>.md    a character's notes page (optional)
+  locations/<id>.md     a location's notes page (optional)
+  research/<id>.md      research notes
+  plan/beats.yaml       the beat sheet (a TV series: the series' sheet)
+  plan/episodes/01.yaml a TV episode's beat sheet
   acts/00/000-prologue.scene      a stage play or film: acts/<NN>/
   acts/01/010-the-quay.scene
   episodes/01/acts/01/010-cold-open.scene   a TV series: episodes/<EE>/acts/<NN>/
@@ -143,6 +148,62 @@ To find a comment's place, search the scene's text for `quote`, using `before` a
 `after` to choose between repeats. If the quote isn't there, the text was deleted or
 rewritten and the comment is detached.
 
+## Notes, research and beats (the context web)
+
+Everything a writer keeps around the script, linked to the characters, places and
+scenes it's about. All of it is optional.
+
+**Pages.** `characters/<id>.md` and `locations/<id>.md` hold notes on the character or
+location with that id (characters.yaml and locations.yaml stay the lists). Research
+notes are `research/<id>.md`. A page is Markdown, with optional YAML frontmatter:
+
+```markdown
+---
+title: "Burial service, 1559"     # research notes: the title (else the id)
+tags: [church, ritual]
+sources: ["Book of Common Prayer (1559)", "Cressy, Birth, Marriage and Death, ch. 17"]
+links:
+  - {to: dee, label: "scryer to", back: "employs"}   # on kelley's page
+  - {to: mortlake}
+---
+The Order for the Burial of the Dead … see [[sc-mvy4wgtl]] and [[minister|the Minister]].
+```
+
+**Links.** Every id in the project (characters, locations, scenes, beats, research
+notes) is unique, and links are by id.
+
+- `links:` in a page's frontmatter: `to` (an id), `label` (read from this record to the
+  other: "Kelley — scryer to — Dee") and `back` (the other way: "Dee — employs —
+  Kelley"). Both labels are optional.
+- `[[id]]` or `[[id|shown text]]` in a page's text: an unlabelled link (Obsidian's
+  syntax).
+- A beat's `scenes` link it to them ("carried out in" / "carries out").
+- Worked out, not stored: a scene links to its `location` ("set in") and to the
+  characters who speak in it or are named in its action ("features" / "appears in").
+
+A link is stored once; the other record shows it as a backlink, with `back` as its
+label. A link to an id that doesn't exist is broken (the script check notes it,
+code `broken-link`).
+
+**Beat sheets.** `plan/beats.yaml` is the play's or film's sheet, or a TV series' sheet
+for the whole series; `plan/episodes/01.yaml` (two digits) is an episode's sheet.
+
+```yaml
+template: save-the-cat        # what it started from, for information
+beats:
+  - id: catalyst              # unique in the project; episode sheets' ids start e1-, e2- …
+    title: Catalyst
+    summary: "Weston dies; Dee notices Kelley at the funeral"
+    purpose: "The event that upsets everything."
+    target: 0.11              # where it should land: a share of the sheet's length (0–1)
+    scenes: [sc-mvy4wgtl]     # the scenes that carry it out
+    episodes: [1]             # a series sheet's beat: the episodes that carry it out
+```
+
+Templates (all editable, none enforced): `save-the-cat`, `three-act`, `story-circle`,
+`freytag`. A beat **lands** at the start of its first scene (or episode), as a share of
+the running time of its sheet's scenes (the episode's, or the whole script's).
+
 ## Derived figures
 
 - **Stage running time** of a scene: spoken words ÷ `words_per_minute` + lyric lines ×
@@ -156,6 +217,8 @@ rewritten and the comment is detached.
 
 ## Changes to this format
 
+- **7** (0.10.0): notes pages (`characters/`, `locations/`), research notes (`research/`),
+  beat sheets (`plan/`), links; the `broken-link` check code.
 - **6** (0.9.0): `ai: {cloud: true}`.
 - **5** (0.9.0): the `ai-grammar` check code; AI reviews kept in `.stagewright/ai/`.
 - **4** (0.7.0): `dialect`.

@@ -9,6 +9,7 @@ mod ai;
 mod cast;
 mod checks;
 mod comments;
+mod context;
 mod ops;
 
 pub use ops::{slugify, version_of};
@@ -310,7 +311,16 @@ pub fn dispatch(ws: &mut Workspace, cmd: &str, args: Value) -> ApiResult {
             &arg_str(&args, "text")?,
             &arg_str(&args, "base_version")?,
         ),
+        "file_trash" => ops::file_trash(&ws.root()?, &arg_str(&args, "name")?),
         "project_snapshot" => ops::project_snapshot(&ws.root()?),
+        // The context web: notes, research, beat sheets and links.
+        "context_index" => context::index(&ws.root()?),
+        "context_record" => context::record(&ws.root()?, &arg_str(&args, "id")?),
+        "scene_context" => context::scene_context(&ws.root()?, &arg_str(&args, "id")?),
+        "research_new" => context::research_new(&ws.root()?, &arg_str(&args, "title")?),
+        "page_set" => context::page_set(&args),
+        "sheet_text" => context::sheet_text(&args),
+        "sheet_template" => context::sheet_template(&args),
         "act_ensure" => ops::act_ensure(&ws.root()?, arg_act(&args)?),
         "collab_read" => ops::collab_read(&ws.root()?),
         "collab_write" => ops::collab_write(&ws.root()?, &args),

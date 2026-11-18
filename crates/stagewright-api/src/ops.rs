@@ -645,7 +645,7 @@ pub fn stats(root: &Path) -> ApiResult {
 }
 
 pub(crate) fn project_file(root: &Path, name: &str) -> Result<PathBuf, ApiError> {
-    if !PROJECT_FILES.contains(&name) {
+    if !PROJECT_FILES.contains(&name) && !crate::context::is_context_file(name) {
         return Err(ApiError::new("bad_args", format!("'{name}' is not a project file")));
     }
     Ok(root.join(name))
@@ -683,7 +683,12 @@ pub fn file_save(root: &Path, name: &str, text: &str, base_version: &str) -> Api
         "comments.yaml" => stagewright_core::comments::parse(&text)
             .map(|_| ())
             .map_err(|e| ApiError::new("invalid_yaml", e))?,
+        _ if crate::context::is_context_file(name) => crate::context::validate(name, &text)?,
         _ => check(serde_yaml::from_str::<serde_yaml::Value>(&text).map(|_| ()))?,
+    }
+    // Notes and beat sheets live in folders that may not exist yet.
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|e| io_err(dir, e))?;
     }
     write_atomic(&path, &text)?;
     file_read(root, name)
@@ -750,6 +755,9 @@ pub fn project_snapshot(root: &Path) -> ApiResult {
             files.push(file_read(root, name)?);
         }
     }
+    for name in crate::context::context_files(root) {
+        files.push(file_read(root, &name)?);
+    }
     Ok(json!({ "view": project_view(root)?, "scenes": scenes, "files": files }))
 }
 
@@ -797,6 +805,21 @@ pub fn episode_create(root: &Path, title: Option<&str>) -> ApiResult {
 }
 
 // ---------------------------------------------------------------- deleting acts and episodes
+
+/// Move a note or beat sheet to `.trash/` (a page deleted in the app).
+pub fn file_trash(root: &Path, name: &str) -> ApiResult {
+    if !crate::context::is_context_file(name) {
+        return Err(ApiError::new("bad_args", format!("'{name}' can't be deleted here")));
+    }
+    let path = root.join(name);
+    if path.exists() {
+        let dir = trash_folder(root, &name.replace(['/', '.'], "-"))?;
+        fs::create_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
+        let dest = dir.join(path.file_name().unwrap_or_default());
+        fs::rename(&path, &dest).map_err(|e| io_err(&path, e))?;
+    }
+    Ok(json!({ "ok": true }))
+}
 
 /// A folder in `.trash/` named after what it held, e.g. `1730000000-ep02-act03`.
 fn trash_folder(root: &Path, what: &str) -> Result<PathBuf, ApiError> {
@@ -1143,4 +1166,4 @@ pub fn export(root: &Path, kind: &str, episode: Option<u32>, path: Option<&Path>
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

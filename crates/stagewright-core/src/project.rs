@@ -240,6 +240,8 @@ pub enum ProjectError {
     Scene(PathBuf, ParseError),
     DuplicateId(String, PathBuf, PathBuf),
     BadActFolder(PathBuf),
+    /// A Markdown page (notes, research) that can't be read.
+    Page(PathBuf, String),
 }
 
 impl SceneFile {
@@ -257,6 +259,7 @@ impl fmt::Display for ProjectError {
             ProjectError::Io(p, e) => write!(f, "{}: {e}", p.display()),
             ProjectError::Yaml(p, e) => write!(f, "{}: {e}", p.display()),
             ProjectError::Scene(p, e) => write!(f, "{}: {e}", p.display()),
+            ProjectError::Page(p, e) => write!(f, "{}: {e}", p.display()),
             ProjectError::DuplicateId(id, a, b) => {
                 write!(f, "scene id '{id}' is used by both {} and {}", a.display(), b.display())
             }

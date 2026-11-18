@@ -12,7 +12,7 @@ fn stage_sample() -> (tempfile::TempDir, Workspace) {
     (tmp, ws)
 }
 
-fn copy_dir(from: &Path, to: &Path) {
+pub(crate) fn copy_dir(from: &Path, to: &Path) {
     fs::create_dir_all(to).unwrap();
     for e in fs::read_dir(from).unwrap() {
         let e = e.unwrap();

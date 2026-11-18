@@ -4,6 +4,7 @@ pub mod analysis;
 pub mod cast;
 pub mod check;
 pub mod comments;
+pub mod context;
 pub mod export;
 pub mod frontmatter;
 pub mod grammar;

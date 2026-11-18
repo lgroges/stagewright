@@ -5,7 +5,7 @@
   import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
   import { yaml } from "@codemirror/lang-yaml";
   import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
-  import { api, ApiError } from "../lib/api";
+  import { api, ApiError, errorText } from "../lib/api";
   import { app } from "../lib/state.svelte";
 
   let { name }: { name: string } = $props();
@@ -73,7 +73,7 @@
           }),
         });
       } catch (e) {
-        problem = e instanceof Error ? e.message : String(e);
+        problem = errorText(e);
       }
     })();
     return () => {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, type ProjectCheck, type Stats, type StatsScene } from "../lib/api";
+  import { api, errorText, type ProjectCheck, type Stats, type StatsScene } from "../lib/api";
   import AiSettings from "./AiSettings.svelte";
   import { app } from "../lib/state.svelte";
 
@@ -16,7 +16,7 @@
       err = null;
       if (stats.series && episode === null && app.scene?.summary.episode) episode = app.scene.summary.episode;
     } catch (e) {
-      err = e instanceof Error ? e.message : String(e);
+      err = errorText(e);
     }
   }
   onMount(load);

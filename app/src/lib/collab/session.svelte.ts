@@ -4,7 +4,7 @@
 
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
-import { api, ApiError, type CollabConfig, type ProjectView, type SharedSceneText } from "../api";
+import { api, ApiError, errorText, type CollabConfig, type ProjectView, type SharedSceneText } from "../api";
 import {
   MODEL_VERSION,
   actKey,
@@ -415,7 +415,7 @@ export class CollabSession {
       this.firstPass = false;
       this.problem = null;
     } catch (e) {
-      this.problem = e instanceof Error ? e.message : String(e);
+      this.problem = errorText(e);
     } finally {
       this.running = false;
       if (this.again) {
@@ -464,7 +464,7 @@ export class CollabSession {
       } catch (e) {
         // A conflict means the file changed under us: the next pass folds it in.
         if (e instanceof ApiError && e.code === "conflict") this.again = true;
-        else problems.push(e instanceof Error ? e.message : String(e));
+        else problems.push(errorText(e));
       }
     }
     if (problems.length) throw new Error(problems.join("; "));

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, type CastView, type RenameResult } from "../lib/api";
+  import { api, errorText, type CastView, type RenameResult } from "../lib/api";
   import { app } from "../lib/state.svelte";
 
   let cast = $state<CastView | null>(null);
@@ -10,7 +10,7 @@
       cast = await api.castView();
       err = null;
     } catch (e) {
-      err = e instanceof Error ? e.message : String(e);
+      err = errorText(e);
     }
   }
 

@@ -9,6 +9,9 @@ interface ApiErrorBody {
   detail?: { version?: string } & Record<string, unknown>;
 }
 
+/** What went wrong, for showing to the writer. */
+export const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
 export class ApiError extends Error {
   constructor(public body: ApiErrorBody) {
     super(body.message);
@@ -379,6 +382,15 @@ export const ai = {
 
 export type RecordKind = "character" | "location" | "scene" | "beat" | "research";
 
+/** What each kind of record is called in the app. */
+export const KIND_NAMES: Record<RecordKind, string> = {
+  character: "Character",
+  location: "Place",
+  scene: "Scene",
+  beat: "Beat",
+  research: "Research note",
+};
+
 /** A record in the context web (a character, place, scene, beat or research note). */
 export interface ContextRecord {
   id: string;
@@ -396,6 +408,26 @@ export interface PageLink {
   to: string;
   label?: string;
   back?: string;
+}
+
+/** A page's frontmatter. */
+export interface PageMeta {
+  title?: string;
+  tags?: string[];
+  sources?: string[];
+  links?: PageLink[];
+}
+
+/** The parts of a page that can be set on their own. */
+export type PageKey = keyof PageMeta | "body";
+
+/** A record with what it's linked to, either way. */
+export interface RecordDetail {
+  id: string;
+  kind: RecordKind;
+  name: string;
+  file: string | null;
+  links: Neighbour[];
 }
 
 export interface Beat {
@@ -518,15 +550,13 @@ export const api = {
   fileRead: (name: string) => call<ProjectFile>("file_read", { name }),
   fileTrash: (name: string) => call<{ ok: true }>("file_trash", { name }),
   contextIndex: () => call<ContextIndex>("context_index"),
-  contextRecord: (id: string) =>
-    call<{ id: string; kind: RecordKind; name: string; file: string | null; links: Neighbour[] }>("context_record", { id }),
+  contextRecord: (id: string) => call<RecordDetail>("context_record", { id }),
   sceneContext: (id: string) => call<{ scene: string; items: ContextItem[] }>("scene_context", { id }),
-  pageParse: (text: string) =>
-    call<{ meta: { title?: string; tags?: string[]; sources?: string[]; links?: PageLink[] }; body: string }>("page_parse", { text }),
-  pageSet: (text: string, key: "links" | "title" | "tags" | "sources" | "body", value: unknown) =>
-    call<{ text: string }>("page_set", { text, key, value }),
+  pageParse: (text: string) => call<{ meta: PageMeta; body: string }>("page_parse", { text }),
+  pageSet: (text: string, key: PageKey, value: unknown) => call<{ text: string }>("page_set", { text, key, value }),
   researchNew: (title: string) => call<{ id: string; file: string; text: string }>("research_new", { title }),
-  sheetText: (sheet: Omit<BeatSheet, "file" | "episode">) => call<{ text: string }>("sheet_text", { sheet }),
+  sheetText: (sheet: Pick<BeatSheet, "template" | "beats">, episode: number | null) =>
+    call<{ file: string; text: string }>("sheet_text", { sheet, episode }),
   sheetTemplate: (template: string, episode: number | null) =>
     call<{ sheet: Omit<BeatSheet, "file" | "episode"> }>("sheet_template", { template, episode }),
   fileSave: (name: string, text: string, base_version: string) =>

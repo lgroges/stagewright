@@ -15,6 +15,7 @@
 //! beat's scenes in its sheet. Scenes link to their characters and location
 //! without anything stored. The other end of every link sees it as a backlink.
 
+use crate::analysis::scene_stats;
 use crate::frontmatter;
 use crate::project::{Project, ProjectError};
 use crate::scene::Element;
@@ -85,11 +86,7 @@ impl Page {
             .or_else(|| after.strip_prefix("---"))
             .unwrap_or("")
             .to_string();
-        let meta = if frontmatter.trim().is_empty() {
-            PageMeta::default()
-        } else {
-            serde_yaml::from_str(&frontmatter).map_err(|e| format!("the page's frontmatter: {e}"))?
-        };
+        let meta = meta_of(&frontmatter).map_err(|e| format!("the page's frontmatter: {e}"))?;
         Ok(Page {
             frontmatter,
             meta,
@@ -110,20 +107,28 @@ impl Page {
 
     /// Set a frontmatter key (`null` removes it), keeping the rest as written.
     pub fn set(&mut self, key: &str, value: &serde_json::Value) -> Result<(), String> {
-        let updated = frontmatter::set_key(&self.frontmatter, key, value);
-        let updated = if value.is_null() {
-            updated.replace(&format!("{key}: null\n"), "")
-        } else {
-            updated
-        };
-        self.meta = if updated.trim().is_empty() {
-            PageMeta::default()
-        } else {
-            serde_yaml::from_str(&updated).map_err(|e| e.to_string())?
-        };
+        let updated = frontmatter::set_or_remove(&self.frontmatter, key, value);
+        self.meta = meta_of(&updated)?;
         self.frontmatter = updated;
         Ok(())
     }
+
+    /// The page's title, or `id` if it has none (characters' and locations'
+    /// pages take their name from the cast list instead).
+    pub fn title_or(&self, id: &str) -> String {
+        self.meta
+            .title
+            .clone()
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or_else(|| id.to_string())
+    }
+}
+
+fn meta_of(frontmatter: &str) -> Result<PageMeta, String> {
+    if frontmatter.trim().is_empty() {
+        return Ok(PageMeta::default());
+    }
+    serde_yaml::from_str(frontmatter).map_err(|e| e.to_string())
 }
 
 /// `[[id]]` and `[[id|shown text]]` in a page's text: (id, shown text).
@@ -179,12 +184,22 @@ pub struct BeatSheet {
     pub beats: Vec<Beat>,
 }
 
-/// Which sheet: the play's, film's or series' (`None`), or an episode's.
-pub fn sheet_path(root: &Path, episode: Option<u32>) -> PathBuf {
+/// Where a sheet is kept, in the project: the play's, film's or series'
+/// (`None`), or an episode's.
+pub fn sheet_file(episode: Option<u32>) -> String {
     match episode {
-        None => root.join("plan").join("beats.yaml"),
-        Some(n) => root.join("plan").join("episodes").join(format!("{n:02}.yaml")),
+        None => "plan/beats.yaml".into(),
+        Some(n) => format!("plan/episodes/{n:02}.yaml"),
     }
+}
+
+pub fn sheet_path(root: &Path, episode: Option<u32>) -> PathBuf {
+    root.join(sheet_file(episode))
+}
+
+/// An id that can be a file name: letters, digits, `-` and `_`.
+pub fn is_plain_id(id: &str) -> bool {
+    !id.is_empty() && id.chars().count() <= 80 && id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
 }
 
 /// The templates a sheet can start from: (id, name).
@@ -287,6 +302,61 @@ pub fn from_template(name: &str, episode: Option<u32>) -> Option<BeatSheet> {
     })
 }
 
+/// Where a beat lands, measured along its sheet's scenes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Landing {
+    /// A share of the sheet's length (0–1), comparable with the beat's target.
+    pub share: f64,
+    /// Minutes from the start of the sheet's first scene.
+    pub minutes: f64,
+}
+
+/// A sheet's scenes in running order, with when each starts: the episode's for an
+/// episode's sheet, the whole script's otherwise.
+pub struct Timeline<'a> {
+    /// (scene id, episode, start in seconds).
+    scenes: Vec<(&'a str, Option<u32>, f64)>,
+    total: f64,
+}
+
+impl<'a> Timeline<'a> {
+    pub fn new(project: &'a Project, episode: Option<u32>) -> Timeline<'a> {
+        let mut at = 0.0;
+        let mut scenes = Vec::new();
+        for s in project
+            .scenes
+            .iter()
+            .filter(|s| episode.is_none() || s.episode == episode)
+        {
+            scenes.push((s.scene.meta.id.as_str(), s.episode, at));
+            at += scene_stats(&s.scene, &project.meta).seconds();
+        }
+        Timeline { scenes, total: at }
+    }
+
+    /// The start of the beat's first scene, or else of its first episode (a
+    /// series sheet). `None` if it has neither, or there's no running time yet.
+    pub fn lands(&self, beat: &Beat) -> Option<Landing> {
+        if self.total <= 0.0 {
+            return None;
+        }
+        let first_ep = beat.episodes.iter().min();
+        let (_, _, start) = self
+            .scenes
+            .iter()
+            .find(|(id, _, _)| beat.scenes.iter().any(|b| b == id))
+            .or_else(|| {
+                self.scenes
+                    .iter()
+                    .find(|(_, e, _)| first_ep.is_some() && e.as_ref() == first_ep)
+            })?;
+        Some(Landing {
+            share: start / self.total,
+            minutes: start / 60.0,
+        })
+    }
+}
+
 /// "Break into Two" → `break-into-two`.
 pub fn slug(s: &str) -> String {
     let mut out = String::new();
@@ -302,31 +372,13 @@ pub fn slug(s: &str) -> String {
 
 // ------------------------------------------------------------------ notes
 
-/// A research note: `research/<id>.md`.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Note {
-    pub id: String,
-    pub page: Page,
-}
-
-impl Note {
-    pub fn title(&self) -> String {
-        self.page
-            .meta
-            .title
-            .clone()
-            .filter(|t| !t.trim().is_empty())
-            .unwrap_or_else(|| self.id.clone())
-    }
-}
-
 /// Everything around the script that's stored in the project.
 #[derive(Debug, Clone, Default)]
 pub struct Notes {
-    /// Characters' and locations' pages, by id.
+    /// Pages by id: characters' and locations' notes, and research notes.
     pub characters: BTreeMap<String, Page>,
     pub locations: BTreeMap<String, Page>,
-    pub research: Vec<Note>,
+    pub research: BTreeMap<String, Page>,
     /// The main sheet (`None`) and episodes' sheets.
     pub sheets: BTreeMap<Option<u32>, BeatSheet>,
 }
@@ -366,6 +418,7 @@ fn sheet(path: &Path) -> Result<Option<BeatSheet>, ProjectError> {
 
 impl Notes {
     pub fn load(root: &Path) -> Result<Notes, ProjectError> {
+        let pages = |kind: Kind| pages_in(&root.join(kind.page_dir().unwrap_or_default()));
         let mut sheets = BTreeMap::new();
         if let Some(s) = sheet(&sheet_path(root, None))? {
             sheets.insert(None, s);
@@ -383,14 +436,44 @@ impl Notes {
             }
         }
         Ok(Notes {
-            characters: pages_in(&root.join("characters"))?,
-            locations: pages_in(&root.join("locations"))?,
-            research: pages_in(&root.join("research"))?
-                .into_iter()
-                .map(|(id, page)| Note { id, page })
-                .collect(),
+            characters: pages(Kind::Character)?,
+            locations: pages(Kind::Location)?,
+            research: pages(Kind::Research)?,
             sheets,
         })
+    }
+
+    fn pages_of(&self, kind: Kind) -> Option<&BTreeMap<String, Page>> {
+        match kind {
+            Kind::Character => Some(&self.characters),
+            Kind::Location => Some(&self.locations),
+            Kind::Research => Some(&self.research),
+            Kind::Scene | Kind::Beat => None,
+        }
+    }
+
+    /// A record's page, if it has one.
+    pub fn page(&self, kind: Kind, id: &str) -> Option<&Page> {
+        self.pages_of(kind)?.get(id)
+    }
+
+    /// Every page: (kind, id, page).
+    pub fn pages(&self) -> impl Iterator<Item = (Kind, &str, &Page)> {
+        Kind::WITH_PAGES.iter().flat_map(move |&k| {
+            self.pages_of(k)
+                .into_iter()
+                .flatten()
+                .map(move |(id, p)| (k, id.as_str(), p))
+        })
+    }
+
+    /// Every beat, in every sheet.
+    pub fn beats(&self) -> impl Iterator<Item = &Beat> {
+        self.sheets.values().flat_map(|s| &s.beats)
+    }
+
+    pub fn beat(&self, id: &str) -> Option<&Beat> {
+        self.beats().find(|b| b.id == id)
     }
 }
 
@@ -404,6 +487,27 @@ pub enum Kind {
     Scene,
     Beat,
     Research,
+}
+
+impl Kind {
+    /// The kinds that can have a page.
+    pub const WITH_PAGES: [Kind; 3] = [Kind::Character, Kind::Location, Kind::Research];
+
+    /// The folder its pages are kept in.
+    pub fn page_dir(self) -> Option<&'static str> {
+        match self {
+            Kind::Character => Some("characters"),
+            Kind::Location => Some("locations"),
+            Kind::Research => Some("research"),
+            Kind::Scene | Kind::Beat => None,
+        }
+    }
+
+    /// Where a record's page is kept (`characters/dee.md`), if it can have one.
+    pub fn page_file(self, id: &str) -> Option<String> {
+        let dir = self.page_dir()?;
+        is_plain_id(id).then(|| format!("{dir}/{id}.md"))
+    }
 }
 
 /// A record in the web.
@@ -491,13 +595,11 @@ impl Web {
                 s.scene.meta.title.clone().unwrap_or_else(|| s.scene.meta.id.clone()),
             );
         }
-        for sheet in notes.sheets.values() {
-            for b in &sheet.beats {
-                add(&b.id, Kind::Beat, b.title.clone());
-            }
+        for b in notes.beats() {
+            add(&b.id, Kind::Beat, b.title.clone());
         }
-        for n in &notes.research {
-            add(&n.id, Kind::Research, n.title());
+        for (id, page) in &notes.research {
+            add(id, Kind::Research, page.title_or(id));
         }
 
         let mut link = |from: &str, to: &str, label: Option<String>, back: Option<String>, how| {
@@ -511,13 +613,7 @@ impl Web {
                 });
             }
         };
-        let pages = notes
-            .characters
-            .iter()
-            .chain(&notes.locations)
-            .map(|(id, p)| (id.as_str(), p))
-            .chain(notes.research.iter().map(|n| (n.id.as_str(), &n.page)));
-        for (id, page) in pages {
+        for (_, id, page) in notes.pages() {
             for l in &page.meta.links {
                 link(id, &l.to, l.label.clone(), l.back.clone(), How::Link);
             }
@@ -525,17 +621,15 @@ impl Web {
                 link(id, &to, None, None, How::Text);
             }
         }
-        for sheet in notes.sheets.values() {
-            for b in &sheet.beats {
-                for s in &b.scenes {
-                    link(
-                        &b.id,
-                        s,
-                        Some("carried out in".into()),
-                        Some("carries out".into()),
-                        How::Plan,
-                    );
-                }
+        for b in notes.beats() {
+            for s in &b.scenes {
+                link(
+                    &b.id,
+                    s,
+                    Some("carried out in".into()),
+                    Some("carries out".into()),
+                    How::Plan,
+                );
             }
         }
         // Scenes: their location, and the characters who speak or are named.
@@ -612,14 +706,13 @@ impl Web {
     /// Links to records that don't exist: (from, to).
     pub fn broken(&self) -> Vec<(String, String)> {
         let ids: BTreeSet<&str> = self.nodes.iter().map(|n| n.id.as_str()).collect();
-        let mut out: Vec<(String, String)> = self
+        let broken: BTreeSet<(&str, &str)> = self
             .edges
             .iter()
             .filter(|e| !ids.contains(e.to.as_str()))
-            .map(|e| (e.from.clone(), e.to.clone()))
+            .map(|e| (e.from.as_str(), e.to.as_str()))
             .collect();
-        out.dedup();
-        out
+        broken.into_iter().map(|(f, t)| (f.into(), t.into())).collect()
     }
 
     /// Ids used by more than one record.
@@ -683,6 +776,9 @@ mod tests {
         assert_eq!(e.beats[0].id, "e2-you");
         assert!(from_template("nonsense", None).is_none());
         assert_eq!(slug("Dénouement — at last!"), "dénouement-at-last");
+        assert_eq!(sheet_file(Some(3)), "plan/episodes/03.yaml");
+        assert_eq!(Kind::Research.page_file("a b"), None);
+        assert_eq!(Kind::Beat.page_file("x"), None);
         assert!(TEMPLATES.iter().all(|(id, _)| template_beats(id).is_some()));
     }
 
@@ -698,10 +794,11 @@ mod tests {
             )
             .unwrap(),
         );
-        notes.research.push(Note {
-            id: "signs".into(),
-            page: Page::parse("---\ntitle: Harbour signs\n---\nAbout [[nowhere]].").unwrap(),
-        });
+        notes.research.insert(
+            "signs".into(),
+            // Linked twice to the same missing record: reported once.
+            Page::parse("---\ntitle: Harbour signs\nlinks: [{to: nowhere}]\n---\nAbout [[nowhere]].").unwrap(),
+        );
         let mut sheet = from_template("three-act", None).unwrap();
         sheet.beats[1].scenes = vec!["sc-1-1".into()];
         notes.sheets.insert(None, sheet);
@@ -736,6 +833,22 @@ mod tests {
         assert_eq!(web.node("signs").unwrap().name, "Harbour signs");
         assert_eq!(web.broken(), vec![("signs".into(), "nowhere".into())]);
         assert!(web.duplicates().is_empty());
+        assert_eq!(
+            notes.pages().map(|(k, id, _)| (k, id)).collect::<Vec<_>>(),
+            vec![(Kind::Character, "tobias"), (Kind::Research, "signs")]
+        );
+
+        // Where beats land.
+        let timeline = Timeline::new(&project, None);
+        let sheet = &notes.sheets[&None];
+        let at = timeline.lands(&sheet.beats[1]).unwrap();
+        assert!(at.share > 0.0 && at.share < 0.5 && at.minutes > 0.0, "{at:?}");
+        assert_eq!(timeline.lands(&sheet.beats[0]), None);
+        let by_episode = Beat {
+            episodes: vec![1],
+            ..Beat::default()
+        };
+        assert_eq!(timeline.lands(&by_episode), None, "not a series");
     }
 
     #[test]

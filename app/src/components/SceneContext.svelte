@@ -34,10 +34,6 @@
       .filter((g) => g.items.length),
   );
 
-  function show(i: ContextItem) {
-    if (i.kind === "beat") app.showView("beats");
-    else app.notes.open(i.id);
-  }
   const short = (t: string) => (t.length > 180 ? t.slice(0, 179).trimEnd() + "…" : t);
 </script>
 
@@ -54,7 +50,7 @@
     <ul>
       {#each g.items as i (i.id)}
         <li>
-          <button class="ghost name" onclick={() => show(i)}>{i.name}</button>
+          <button class="ghost name" onclick={() => app.notes.show(i)}>{i.name}</button>
           {#if i.via}<span class="muted small">via {i.via}</span>{/if}
           {#if i.kind === "beat" && (i.summary || i.purpose)}
             <p class="small">{i.summary ?? ""}{#if i.purpose}<span class="muted"> {i.purpose}</span>{/if}</p>

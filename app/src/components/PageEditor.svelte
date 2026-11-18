@@ -9,7 +9,7 @@
   import { markdown } from "@codemirror/lang-markdown";
   import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
   import { autocompletion, type CompletionContext } from "@codemirror/autocomplete";
-  import type { ContextRecord } from "../lib/api";
+  import { KIND_NAMES, type ContextRecord } from "../lib/api";
 
   let {
     text,
@@ -24,14 +24,6 @@
   // The text as last passed on (the editor is made once, from the first `text`).
   let sent = untrack(() => text);
 
-  const kinds: Record<string, string> = {
-    character: "character",
-    location: "place",
-    scene: "scene",
-    beat: "beat",
-    research: "research",
-  };
-
   /** `[[` then any part of a name or id: the records that match. */
   function links(ctx: CompletionContext) {
     const m = ctx.matchBefore(/\[\[[^\]|\n]*/);
@@ -41,7 +33,7 @@
       options: records.map((r) => ({
         label: r.id,
         displayLabel: r.label ? `${r.label} ${r.name}` : r.name,
-        detail: kinds[r.kind],
+        detail: KIND_NAMES[r.kind].toLowerCase(),
         apply: `${r.id}]]`,
       })),
       // Match the name as well as the id.

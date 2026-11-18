@@ -4,6 +4,24 @@ Choices made about Stagewright and why, newest first. Each entry: what we chose,
 the reason, and what we didn't do. Ideas still open or turned down are in
 [ideas.md](ideas.md).
 
+## 2026-11-18 · Tidying the context web
+
+- **Core owns the context web's rules**: which folder a kind's pages live in
+  (`Kind::page_dir`, `page_file`), where a sheet is kept (`sheet_file`, used by the
+  app too, through `sheet_text`), what a plain id is, and where a beat lands
+  (`Timeline`, moved from the API). The API formats the answers.
+- **Research notes are pages like the others** (`Notes::research` by id, with
+  `Notes::page`, `pages` and `beats` to reach them), so nothing matches on kind to
+  find a page.
+- **`frontmatter::set_or_remove`** removes a key given `null`, replacing three copies
+  of "set it to null, then delete the line".
+- **A broken link is reported once** even when a page links to the same missing id
+  twice (a stored link and `[[id]]`).
+- **In the app**: a `Queue` for saves that must go one after another (Notes, Beats);
+  `notes.show(record)` opens anything where it lives (scene, beat or note);
+  `KIND_NAMES`, `PageMeta`/`PageKey` and `errorText` shared from `api.ts` (`errorText`
+  replaces the same line in eleven places).
+
 ## 2026-11-18 · The context web, built (0.10.0)
 
 Part 2 of [plans/context-and-ai.md](plans/context-and-ai.md).

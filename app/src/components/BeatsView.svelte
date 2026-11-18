@@ -3,6 +3,7 @@
      A TV series has a sheet for the series and one per episode. -->
 <script lang="ts">
   import type { Beat } from "../lib/api";
+  import { Queue } from "../lib/queue.svelte";
   import { app } from "../lib/state.svelte";
 
   const notes = app.notes;
@@ -29,19 +30,14 @@
   });
 
   // Saves go one after another, each with the beats as they are by then.
-  let saving = $state(0);
-  let queue: Promise<unknown> = Promise.resolve();
+  const saves = new Queue();
   function save() {
-    saving++;
-    queue = queue
-      .then(() => notes.saveSheet(episode, sheet?.template ?? null, $state.snapshot(beats) as Beat[]))
-      .catch(() => undefined)
-      .finally(() => saving--);
+    void saves.run(() => notes.saveSheet(episode, sheet?.template ?? null, $state.snapshot(beats) as Beat[]));
   }
 
   function edit(i: number, patch: Partial<Beat>) {
     beats[i] = { ...beats[i], ...patch };
-    void save();
+    save();
   }
   function move(i: number, by: number) {
     const j = i + by;
@@ -49,11 +45,11 @@
     const next = [...beats];
     [next[i], next[j]] = [next[j], next[i]];
     beats = next;
-    void save();
+    save();
   }
   function remove(i: number) {
     beats = beats.filter((_, k) => k !== i);
-    void save();
+    save();
   }
   function addBeat() {
     const taken = new Set(notes.index?.records.map((r) => r.id) ?? []);
@@ -61,7 +57,7 @@
     let n = beats.length + 1;
     while (taken.has(`${prefix}-${n}`) || beats.some((b) => b.id === `${prefix}-${n}`)) n++;
     beats = [...beats, { id: `${prefix}-${n}`, title: "New beat", scenes: [], episodes: [] }];
-    void save();
+    save();
   }
 
   const pct = (x: number | null | undefined) => (x == null ? "" : `${Math.round(x * 100)}%`);
@@ -88,7 +84,7 @@
       </select>
     {/if}
     {#if sheet?.template}<span class="muted small">from {templates.find((t) => t.id === sheet.template)?.name ?? sheet.template}</span>{/if}
-    {#if saving > 0}<span class="muted small">Saving…</span>{/if}
+    {#if saves.pending > 0}<span class="muted small">Saving…</span>{/if}
     {#if sheet}
       <select class="replace" bind:value={chosenTemplate} onchange={() => chosenTemplate && start(chosenTemplate)} aria-label="Start again from a template">
         <option value="">Start again from…</option>
@@ -145,7 +141,7 @@
             <div class="scenes">
               {#each b.scenes as id (id)}
                 <span class="chip">
-                  <button class="ghost link" onclick={() => (void app.openScene(id), (app.view = { kind: "script" }))}>{sceneName(id)}</button>
+                  <button class="ghost link" onclick={() => notes.show({ id, kind: "scene" })}>{sceneName(id)}</button>
                   <button class="ghost x" aria-label="Unlink scene" onclick={() => edit(i, { scenes: b.scenes.filter((s) => s !== id) })}>✕</button>
                 </span>
               {/each}

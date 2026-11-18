@@ -1,7 +1,8 @@
 <!-- Notes: a page for each character and place, research notes, and the links
      between them and the scenes (the context web). -->
 <script lang="ts">
-  import { api, type ContextRecord, type Neighbour, type PageLink } from "../lib/api";
+  import { api, errorText, KIND_NAMES, type ContextRecord, type Neighbour, type PageKey, type PageLink, type PageMeta } from "../lib/api";
+  import { Queue } from "../lib/queue.svelte";
   import { app } from "../lib/state.svelte";
   import PageEditor from "./PageEditor.svelte";
 
@@ -26,20 +27,13 @@
     { title: "Places", items: shown("location") },
     { title: "Research", items: shown("research") },
   ]);
-  const kindName: Record<string, string> = {
-    character: "Character",
-    location: "Place",
-    scene: "Scene",
-    beat: "Beat",
-    research: "Research note",
-  };
 
   // ------------------------------------------------------------ the open record
 
   const selected = $derived(notes.selected ? notes.record(notes.selected) : undefined);
   /** The page as on disk, its version, and its parts. */
   let page = $state<{ id: string; file: string; text: string; version: string } | null>(null);
-  let meta = $state<{ title?: string; tags?: string[]; sources?: string[]; links?: PageLink[] }>({});
+  let meta = $state<PageMeta>({});
   let body = $state("");
   let links = $state<Neighbour[]>([]);
   let loading = $state(false);
@@ -61,7 +55,7 @@
         page = null;
       }
     } catch (e) {
-      notes.error = e instanceof Error ? e.message : String(e);
+      notes.error = errorText(e);
     } finally {
       loading = false;
     }
@@ -81,12 +75,11 @@
    * Change one part of the page and save it. Saves go one after another, each
    * from the text and version the last one left.
    */
-  let saving: Promise<void> = Promise.resolve();
-  function set(key: "links" | "title" | "tags" | "sources" | "body", value: unknown) {
-    saving = saving.then(() => apply(key, value)).catch(() => undefined);
-    return saving;
+  const saves = new Queue();
+  function set(key: PageKey, value: unknown) {
+    void saves.run(() => apply(key, value));
   }
-  async function apply(key: "links" | "title" | "tags" | "sources" | "body", value: unknown) {
+  async function apply(key: PageKey, value: unknown) {
     if (!page) return;
     const p = page;
     const { text } = await api.pageSet(p.text, key, value);
@@ -114,7 +107,7 @@
       if (!l.back?.trim()) delete l.back;
     }
     meta = { ...meta, links: next };
-    if (next.every((l) => l.to)) void set("links", next.length ? next : null);
+    if (next.every((l) => l.to)) set("links", next.length ? next : null);
   }
   function addLink() {
     meta = { ...meta, links: [...(meta.links ?? []), { to: "" }] };
@@ -122,19 +115,10 @@
   function removeLink(i: number) {
     const next = (meta.links ?? []).filter((_, k) => k !== i);
     meta = { ...meta, links: next };
-    void set("links", next.length ? next : null);
+    set("links", next.length ? next : null);
   }
 
   const back = $derived(links.filter((l) => l.incoming || l.how !== "link"));
-
-  function follow(l: { id: string; kind: string }) {
-    if (l.kind === "scene") {
-      void app.openScene(l.id);
-      app.view = { kind: "script" };
-    } else {
-      notes.selected = l.id;
-    }
-  }
 
   async function createNote() {
     await notes.newResearch(newTitle);
@@ -183,7 +167,7 @@
       </div>
     {:else}
       <header>
-        <span class="kind">{kindName[selected.kind]}</span>
+        <span class="kind">{KIND_NAMES[selected.kind]}</span>
         <h2 data-testid="note-name">{selected.name}</h2>
         {#if selected.kind === "research" && page}
           <button class="ghost small danger" onclick={() => page && notes.trash(page.file)}>Delete note</button>
@@ -261,8 +245,8 @@
           {#each back as l (l.id)}
             <li>
               {#if l.label}<span class="muted">{l.label}</span>{/if}
-              <button class="ghost link" onclick={() => follow(l)}>{l.name}</button>
-              <span class="muted small">{kindName[l.kind].toLowerCase()}</span>
+              <button class="ghost link" onclick={() => notes.show(l)}>{l.name}</button>
+              <span class="muted small">{KIND_NAMES[l.kind].toLowerCase()}</span>
             </li>
           {/each}
         </ul>

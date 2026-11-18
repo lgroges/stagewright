@@ -6,7 +6,7 @@
 // app, saves everything, then installs and restarts. In a browser (`stagewright
 // serve`) there is nothing to update, so this stays idle.
 
-import { isTauri } from "./api";
+import { errorText, isTauri } from "./api";
 
 declare const __APP_VERSION__: string;
 export const APP_VERSION: string = typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "dev";
@@ -71,7 +71,7 @@ class Updates {
     } catch (e) {
       // Offline or GitHub unreachable: only worth mentioning when asked.
       this.phase = "error";
-      this.error = e instanceof Error ? e.message : String(e);
+      this.error = errorText(e);
     }
   }
 
@@ -98,7 +98,7 @@ class Updates {
       await relaunch();
     } catch (e) {
       this.phase = "error";
-      this.error = e instanceof Error ? e.message : String(e);
+      this.error = errorText(e);
     }
   }
 }

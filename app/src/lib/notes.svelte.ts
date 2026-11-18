@@ -5,7 +5,7 @@
 // (with a version, so a change made elsewhere isn't overwritten) and, when
 // co-writing, put in the shared document like the other project files.
 
-import { api, ApiError, type Beat, type BeatSheet, type ContextIndex, type ContextRecord, type ProjectView } from "./api";
+import { api, ApiError, errorText, type Beat, type BeatSheet, type ContextIndex, type ContextRecord, type ProjectView, type RecordKind } from "./api";
 
 /** What the notes state needs from the app. */
 interface Host {
@@ -15,6 +15,7 @@ interface Host {
   scene: { id: string } | null;
   createScene(act: number, after: string | null, episode?: number | null): Promise<void>;
   updateMeta(patch: { title?: string; synopsis?: string | null }): Promise<void>;
+  openScene(id: string): Promise<void>;
   showView(kind: "notes" | "beats"): void;
 }
 
@@ -41,7 +42,7 @@ export class NotesState {
       this.index = await api.contextIndex();
       this.error = null;
     } catch (e) {
-      this.error = e instanceof Error ? e.message : String(e);
+      this.error = errorText(e);
     }
   }
 
@@ -49,10 +50,14 @@ export class NotesState {
     return this.index?.records.find((r) => r.id === id);
   }
 
-  /** Show a record in the Notes view (or a scene in the script). */
-  open(id: string) {
-    this.selected = id;
-    this.app.showView("notes");
+  /** Show a record where it lives: a scene in the script, a beat in Beats, anything else in Notes. */
+  show(r: { id: string; kind: RecordKind }) {
+    if (r.kind === "scene") void this.app.openScene(r.id);
+    else if (r.kind === "beat") this.app.showView("beats");
+    else {
+      this.selected = r.id;
+      this.app.showView("notes");
+    }
   }
 
   /** Read a page or sheet: its text and version ("" if it doesn't exist yet). */
@@ -76,9 +81,7 @@ export class NotesState {
       this.error =
         e instanceof ApiError && e.code === "conflict"
           ? "This changed elsewhere since it was opened. Reload it to see the change."
-          : e instanceof Error
-            ? e.message
-            : String(e);
+          : errorText(e);
       return null;
     }
   }
@@ -89,7 +92,7 @@ export class NotesState {
     if (!t) return;
     const n = await api.researchNew(t);
     const empty = await api.fileRead(n.file);
-    if ((await this.save(n.file, n.text, empty.version)) !== null) this.open(n.id);
+    if ((await this.save(n.file, n.text, empty.version)) !== null) this.show({ id: n.id, kind: "research" });
   }
 
   /** Delete a page (to the project's trash). Not shared when co-writing yet. */
@@ -110,16 +113,9 @@ export class NotesState {
     return this.index?.sheets.find((s) => s.episode === episode);
   }
 
-  /** Where an episode's (or the main) sheet is kept. */
-  sheetFile(episode: number | null) {
-    return episode === null ? "plan/beats.yaml" : `plan/episodes/${String(episode).padStart(2, "0")}.yaml`;
-  }
-
-  /** Save a sheet's beats. */
+  /** Save a sheet's beats (where they land is worked out again, not saved). */
   async saveSheet(episode: number | null, template: string | null, beats: Beat[]) {
-    const clean = beats.map(({ lands: _, lands_at: __, ...b }) => b);
-    const { text } = await api.sheetText({ template, beats: clean });
-    const file = this.sheetFile(episode);
+    const { file, text } = await api.sheetText({ template, beats }, episode);
     const current = await api.fileRead(file);
     return (await this.save(file, text, current.version)) !== null;
   }

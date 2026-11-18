@@ -10,30 +10,24 @@
 //! either way.
 
 use crate::ops::{load, scene_label};
-use crate::{ApiError, ApiResult};
+use crate::{arg_opt_str, arg_opt_u32, ApiError, ApiResult};
 use serde_json::{json, Value};
-use stagewright_core::analysis::scene_stats;
-use stagewright_core::context::{from_template, slug, BeatSheet, Kind, Notes, Page, Web, TEMPLATES};
+use stagewright_core::context::{
+    from_template, is_plain_id, sheet_file, slug, BeatSheet, Kind, Neighbour, Notes, Page, Timeline, Web, TEMPLATES,
+};
 use stagewright_core::layout::Format;
-use stagewright_core::project::ProjectError;
+use stagewright_core::project::Project;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-/// Folders of pages, and the record kind each holds.
-const PAGE_DIRS: &[(&str, Kind)] = &[
-    ("characters", Kind::Character),
-    ("locations", Kind::Location),
-    ("research", Kind::Research),
-];
-
-/// An id usable as a file name: letters, digits, `-` and `_`.
-fn safe_id(id: &str) -> bool {
-    !id.is_empty() && id.chars().count() <= 80 && id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+fn invalid(e: impl ToString) -> ApiError {
+    ApiError::new("invalid_yaml", e.to_string())
 }
 
 /// Whether `name` is one of the context web's files (`characters/dee.md`,
 /// `plan/beats.yaml`, `plan/episodes/02.yaml` …).
 pub fn is_context_file(name: &str) -> bool {
-    if name == "plan/beats.yaml" {
+    if name == sheet_file(None) {
         return true;
     }
     if let Some(n) = name
@@ -42,12 +36,10 @@ pub fn is_context_file(name: &str) -> bool {
     {
         return n.len() == 2 && n.bytes().all(|b| b.is_ascii_digit());
     }
-    PAGE_DIRS.iter().any(|(dir, _)| {
-        name.strip_prefix(dir)
-            .and_then(|r| r.strip_prefix('/'))
-            .and_then(|f| f.strip_suffix(".md"))
-            .is_some_and(safe_id)
-    })
+    let Some((dir, file)) = name.split_once('/') else {
+        return false;
+    };
+    Kind::WITH_PAGES.iter().any(|k| k.page_dir() == Some(dir)) && file.strip_suffix(".md").is_some_and(is_plain_id)
 }
 
 /// The context web's files in the project, for sharing when co-writing.
@@ -63,9 +55,13 @@ pub fn context_files(root: &Path) -> Vec<String> {
         names.sort();
         names
     };
-    let mut out: Vec<String> = PAGE_DIRS.iter().flat_map(|(dir, _)| in_dir(dir)).collect();
-    if root.join("plan/beats.yaml").is_file() {
-        out.push("plan/beats.yaml".into());
+    let mut out: Vec<String> = Kind::WITH_PAGES
+        .iter()
+        .filter_map(|k| k.page_dir())
+        .flat_map(in_dir)
+        .collect();
+    if root.join(sheet_file(None)).is_file() {
+        out.push(sheet_file(None));
     }
     out.extend(in_dir("plan/episodes"));
     out
@@ -73,59 +69,45 @@ pub fn context_files(root: &Path) -> Vec<String> {
 
 /// Check a context file's text before it's saved.
 pub fn validate(name: &str, text: &str) -> Result<(), ApiError> {
-    let bad = |m: String| ApiError::new("invalid_yaml", m);
     if name.ends_with(".md") {
-        Page::parse(text).map(drop).map_err(bad)
-    } else {
-        let sheet: BeatSheet = serde_yaml::from_str(text).map_err(|e| bad(e.to_string()))?;
-        let mut ids = std::collections::BTreeSet::new();
-        match sheet
-            .beats
-            .iter()
-            .find(|b| !safe_id(&b.id) || !ids.insert(b.id.as_str()))
-        {
-            Some(b) => Err(bad(format!(
-                "beat id '{}' is missing, used twice or not a plain name",
-                b.id
-            ))),
-            None => Ok(()),
-        }
+        return Page::parse(text).map(drop).map_err(invalid);
+    }
+    let sheet: BeatSheet = serde_yaml::from_str(text).map_err(invalid)?;
+    let mut ids = BTreeSet::new();
+    match sheet
+        .beats
+        .iter()
+        .find(|b| !is_plain_id(&b.id) || !ids.insert(b.id.as_str()))
+    {
+        Some(b) => Err(invalid(format!(
+            "beat id '{}' is missing, used twice or not a plain name",
+            b.id
+        ))),
+        None => Ok(()),
     }
 }
 
-fn notes(root: &Path) -> Result<Notes, ApiError> {
-    Notes::load(root).map_err(|e: ProjectError| ApiError::new("invalid_yaml", e.to_string()))
+/// The project, its notes and the web they make.
+struct Context {
+    project: Project,
+    notes: Notes,
+    web: Web,
 }
 
-fn kind_name(k: Kind) -> &'static str {
-    match k {
-        Kind::Character => "character",
-        Kind::Location => "location",
-        Kind::Scene => "scene",
-        Kind::Beat => "beat",
-        Kind::Research => "research",
+impl Context {
+    fn load(root: &Path) -> Result<Context, ApiError> {
+        let project = load(root)?;
+        let notes = Notes::load(root).map_err(invalid)?;
+        let web = Web::build(&project, &notes);
+        Ok(Context { project, notes, web })
     }
-}
-
-/// Where a record's page is kept, if it can have one.
-pub fn page_file(kind: Kind, id: &str) -> Option<String> {
-    let (dir, _) = PAGE_DIRS.iter().find(|(_, k)| *k == kind)?;
-    safe_id(id).then(|| format!("{dir}/{id}.md"))
 }
 
 /// Everything in the web: each record (with its page's file, if it has one),
 /// the beat sheets with where each beat lands, and what's broken.
 pub fn index(root: &Path) -> ApiResult {
-    let p = load(root)?;
-    let n = notes(root)?;
-    let web = Web::build(&p, &n);
-    let has_page = |k: Kind, id: &str| match k {
-        Kind::Character => n.characters.contains_key(id),
-        Kind::Location => n.locations.contains_key(id),
-        Kind::Research => true,
-        _ => false,
-    };
-    let labels: std::collections::BTreeMap<&str, String> = p
+    let Context { project: p, notes, web } = Context::load(root)?;
+    let labels: BTreeMap<&str, String> = p
         .scenes
         .iter()
         .map(|s| (s.scene.meta.id.as_str(), scene_label(s)))
@@ -135,172 +117,133 @@ pub fn index(root: &Path) -> ApiResult {
         .iter()
         .map(|r| {
             json!({
-                "id": r.id, "kind": kind_name(r.kind), "name": r.name,
+                "id": r.id, "kind": r.kind, "name": r.name,
                 "label": labels.get(r.id.as_str()),
-                "file": page_file(r.kind, &r.id), "has_page": has_page(r.kind, &r.id),
+                "file": r.kind.page_file(&r.id),
+                "has_page": notes.page(r.kind, &r.id).is_some(),
             })
         })
         .collect();
 
-    // Where beats land: the start of a beat's first scene (or episode), as a
-    // share of its sheet's length, in running time.
-    let secs: Vec<f64> = p
-        .scenes
-        .iter()
-        .map(|s| scene_stats(&s.scene, &p.meta).seconds())
-        .collect();
-    let screen = p.meta.format != Format::Stage;
-    let sheets: Vec<Value> = n
+    // As a page (screen, about a minute a page) or a minute in.
+    let per_page =
+        (p.meta.format != Format::Stage).then(|| p.meta.running_time.minutes_per_page.unwrap_or(1.0).max(0.1));
+    let at = |minutes: f64| match per_page {
+        Some(per) => format!("page {}", (minutes / per).floor() as u32 + 1),
+        None => format!("minute {}", minutes.floor() as u32),
+    };
+    let sheets: Vec<Value> = notes
         .sheets
         .iter()
-        .map(|(episode, sheet)| {
-            let within: Vec<usize> = (0..p.scenes.len()).filter(|&i| episode.is_none() || p.scenes[i].episode == *episode).collect();
-            let total: f64 = within.iter().map(|&i| secs[i]).sum();
-            let start_of = |i: usize| -> f64 { within.iter().take_while(|&&j| j != i).map(|&j| secs[j]).sum() };
+        .map(|(&episode, sheet)| {
+            let timeline = Timeline::new(&p, episode);
             let beats: Vec<Value> = sheet
                 .beats
                 .iter()
                 .map(|b| {
-                    let first = b
-                        .scenes
-                        .iter()
-                        .filter_map(|id| within.iter().copied().find(|&i| p.scenes[i].scene.meta.id == *id))
-                        .min()
-                        .or_else(|| {
-                            let ep = b.episodes.iter().min()?;
-                            within.iter().copied().find(|&i| p.scenes[i].episode == Some(*ep))
-                        });
-                    let lands = first.filter(|_| total > 0.0).map(|i| start_of(i) / total);
-                    // As a page (screen, about a minute a page) or a minute in.
-                    let at = lands.map(|l| {
-                        let minutes = l * total / 60.0;
-                        if screen {
-                            let per_page = p.meta.running_time.minutes_per_page.unwrap_or(1.0).max(0.1);
-                            format!("page {}", (minutes / per_page).floor() as u32 + 1)
-                        } else {
-                            format!("minute {}", minutes.floor() as u32)
-                        }
-                    });
+                    let lands = timeline.lands(b);
                     let mut v = serde_json::to_value(b).unwrap_or_default();
                     // Always present for the app, though a sheet leaves them out when empty.
                     v["scenes"] = json!(b.scenes);
                     v["episodes"] = json!(b.episodes);
-                    v["lands"] = json!(lands);
-                    v["lands_at"] = json!(at);
+                    v["lands"] = json!(lands.map(|l| l.share));
+                    v["lands_at"] = json!(lands.map(|l| at(l.minutes)));
                     v
                 })
                 .collect();
-            json!({
-                "episode": episode, "template": sheet.template, "beats": beats,
-                "file": stagewright_core::context::sheet_path(Path::new(""), *episode).to_string_lossy().replace('\\', "/"),
-            })
+            json!({ "episode": episode, "template": sheet.template, "beats": beats, "file": sheet_file(episode) })
         })
         .collect();
     let templates: Vec<Value> = TEMPLATES
         .iter()
         .map(|(id, name)| json!({ "id": id, "name": name }))
         .collect();
+    let broken: Vec<Value> = web
+        .broken()
+        .into_iter()
+        .map(|(from, to)| json!({ "from": from, "to": to }))
+        .collect();
     Ok(json!({
         "records": records,
         "sheets": sheets,
         "templates": templates,
-        "broken": web.broken().iter().map(|(from, to)| json!({ "from": from, "to": to })).collect::<Vec<_>>(),
+        "broken": broken,
         "duplicates": web.duplicates(),
     }))
 }
 
-/// One record: what it's linked to, either way, and its page's text.
+/// One record: what it's linked to, either way, and its page's file.
 pub fn record(root: &Path, id: &str) -> ApiResult {
-    let p = load(root)?;
-    let n = notes(root)?;
-    let web = Web::build(&p, &n);
+    let Context { web, .. } = Context::load(root)?;
     let node = web
         .node(id)
         .ok_or_else(|| ApiError::new("not_found", format!("nothing called '{id}'")))?;
     Ok(json!({
-        "id": node.id, "kind": kind_name(node.kind), "name": node.name,
-        "file": page_file(node.kind, id),
-        "links": neighbours(&web, id),
+        "id": node.id, "kind": node.kind, "name": node.name,
+        "file": node.kind.page_file(id),
+        "links": web.around(id),
     }))
-}
-
-fn neighbours(web: &Web, id: &str) -> Vec<Value> {
-    web.around(id)
-        .into_iter()
-        .map(|n| {
-            json!({
-                "id": n.id, "kind": kind_name(n.kind), "name": n.name, "label": n.label,
-                "incoming": n.incoming, "how": n.how,
-            })
-        })
-        .collect()
 }
 
 /// What's around a scene, for the panel beside the script and the AI: its
 /// beats, characters and location, with their pages, and research linked to
 /// any of those or to the scene. One hop out from the scene, plus research.
 pub fn scene_context(root: &Path, id: &str) -> ApiResult {
-    let p = load(root)?;
-    let n = notes(root)?;
-    let web = Web::build(&p, &n);
+    let Context { notes, web, .. } = Context::load(root)?;
     if web.node(id).is_none_or(|r| r.kind != Kind::Scene) {
         return Err(ApiError::new("not_found", format!("no scene '{id}'")));
     }
-    let page_text = |kind: Kind, rid: &str| -> Option<String> {
-        let page = match kind {
-            Kind::Character => n.characters.get(rid),
-            Kind::Location => n.locations.get(rid),
-            Kind::Research => n.research.iter().find(|r| r.id == rid).map(|r| &r.page),
-            _ => None,
-        };
-        page.map(|pg| pg.body.trim().to_string()).filter(|t| !t.is_empty())
-    };
-    let beat = |bid: &str| n.sheets.values().flat_map(|s| &s.beats).find(|b| b.id == bid);
-    let mut items: Vec<Value> = Vec::new();
-    let mut seen = std::collections::BTreeSet::from([id.to_string()]);
-    let around = web.around(id);
-    let mut push = |nb: &stagewright_core::context::Neighbour, via: Option<&str>| {
+    let mut items: Vec<(Kind, Value)> = Vec::new();
+    let mut seen = BTreeSet::from([id.to_string()]);
+    let mut push = |nb: &Neighbour, via: Option<&str>| {
         if !seen.insert(nb.id.clone()) {
             return;
         }
+        let text = notes
+            .page(nb.kind, &nb.id)
+            .map(|pg| pg.body.trim().to_string())
+            .filter(|t| !t.is_empty());
         let mut v = json!({
-            "id": nb.id, "kind": kind_name(nb.kind), "name": nb.name, "label": nb.label,
-            "text": page_text(nb.kind, &nb.id), "via": via,
+            "id": nb.id, "kind": nb.kind, "name": nb.name, "label": nb.label, "text": text, "via": via,
         });
-        if let Some(b) = beat(&nb.id) {
+        if let Some(b) = notes.beat(&nb.id) {
             v["summary"] = json!(b.summary);
             v["purpose"] = json!(b.purpose);
         }
-        items.push(v);
+        items.push((nb.kind, v));
     };
-    for nb in &around {
-        if nb.kind != Kind::Scene {
-            push(nb, None);
-        }
+    let around = web.around(id);
+    for nb in around.iter().filter(|nb| nb.kind != Kind::Scene) {
+        push(nb, None);
     }
     // Research linked to the scene's characters, location or beats.
-    for nb in &around {
-        if matches!(nb.kind, Kind::Character | Kind::Location | Kind::Beat) {
-            for r in web.around(&nb.id).iter().filter(|r| r.kind == Kind::Research) {
-                push(r, Some(&nb.name));
-            }
+    for nb in around
+        .iter()
+        .filter(|nb| matches!(nb.kind, Kind::Character | Kind::Location | Kind::Beat))
+    {
+        for r in web.around(&nb.id).iter().filter(|r| r.kind == Kind::Research) {
+            push(r, Some(&nb.name));
         }
     }
-    let order = |k: &str| {
-        ["beat", "character", "location", "research"]
+    // The order the panel shows them in.
+    let rank = |k: &Kind| {
+        [Kind::Beat, Kind::Character, Kind::Location, Kind::Research]
             .iter()
-            .position(|x| *x == k)
-            .unwrap_or(9)
+            .position(|x| x == k)
     };
-    items.sort_by_key(|v| order(v["kind"].as_str().unwrap_or("")));
+    items.sort_by_key(|(k, _)| rank(k));
+    let items: Vec<Value> = items.into_iter().map(|(_, v)| v).collect();
     Ok(json!({ "scene": id, "items": items }))
+}
+
+fn page_arg(args: &Value) -> Result<Page, ApiError> {
+    Page::parse(&arg_opt_str(args, "text").unwrap_or_default()).map_err(invalid)
 }
 
 /// A page's parts: its frontmatter (`title`, `tags`, `sources`, `links`) and
 /// its text. Args: `text`.
 pub fn page_parse(args: &Value) -> ApiResult {
-    let page = Page::parse(args.get("text").and_then(Value::as_str).unwrap_or(""))
-        .map_err(|e| ApiError::new("invalid_yaml", e))?;
+    let page = page_arg(args)?;
     Ok(json!({ "meta": page.meta, "body": page.body }))
 }
 
@@ -308,13 +251,12 @@ pub fn page_parse(args: &Value) -> ApiResult {
 /// `tags`, `sources`; `null` removes it) or the `body`. Args: `text`, `key`,
 /// `value`.
 pub fn page_set(args: &Value) -> ApiResult {
-    let key = args.get("key").and_then(Value::as_str).unwrap_or("");
+    let key = arg_opt_str(args, "key").unwrap_or_default();
     let value = args.get("value").unwrap_or(&Value::Null);
-    let mut page = Page::parse(args.get("text").and_then(Value::as_str).unwrap_or(""))
-        .map_err(|e| ApiError::new("invalid_yaml", e))?;
-    match key {
+    let mut page = page_arg(args)?;
+    match key.as_str() {
         "body" => page.body = value.as_str().unwrap_or("").to_string(),
-        "links" | "title" | "tags" | "sources" => page.set(key, value).map_err(|e| ApiError::new("invalid_yaml", e))?,
+        "links" | "title" | "tags" | "sources" => page.set(&key, value).map_err(invalid)?,
         _ => return Err(ApiError::new("bad_args", format!("'{key}' can't be set on a page"))),
     }
     Ok(json!({ "text": page.to_text() }))
@@ -322,41 +264,38 @@ pub fn page_set(args: &Value) -> ApiResult {
 
 /// A new research note's id (from its title, unique in the project) and text.
 pub fn research_new(root: &Path, title: &str) -> ApiResult {
-    let p = load(root)?;
-    let n = notes(root)?;
-    let web = Web::build(&p, &n);
+    let Context { web, .. } = Context::load(root)?;
     let base = Some(slug(title))
-        .filter(|s| !s.is_empty() && safe_id(s))
+        .filter(|s| is_plain_id(s))
         .unwrap_or_else(|| "note".into());
+    let file = |id: &str| Kind::Research.page_file(id).unwrap_or_default();
     let id = (1..)
         .map(|k| if k == 1 { base.clone() } else { format!("{base}-{k}") })
-        .find(|id| web.node(id).is_none() && !root.join("research").join(format!("{id}.md")).exists())
+        .find(|id| web.node(id).is_none() && !root.join(file(id)).exists())
         .expect("an unused id");
-    let text = format!(
-        "---\ntitle: {}\n---\n",
-        serde_json::to_string(title.trim()).unwrap_or_default()
-    );
-    Ok(json!({ "id": id, "file": format!("research/{id}.md"), "text": text }))
+    let text = format!("---\ntitle: {}\n---\n", json!(title.trim()));
+    Ok(json!({ "id": id, "file": file(&id), "text": text }))
 }
 
-/// A sheet as YAML text. Args: `sheet` (as `index` gives it; extra fields such
-/// as where beats land are dropped).
+/// A sheet as YAML text, and where it's kept. Args: `sheet` (as `index` gives
+/// it; extra fields such as where beats land are dropped), optional `episode`.
 pub fn sheet_text(args: &Value) -> ApiResult {
     let sheet: BeatSheet = serde_json::from_value(args.get("sheet").cloned().unwrap_or_default())
         .map_err(|e| ApiError::new("bad_args", e.to_string()))?;
     let text = serde_yaml::to_string(&sheet).map_err(|e| ApiError::new("internal", e.to_string()))?;
-    validate("plan/beats.yaml", &text)?;
-    Ok(json!({ "text": text }))
+    let file = sheet_file(arg_opt_u32(args, "episode"));
+    validate(&file, &text)?;
+    Ok(json!({ "file": file, "text": text }))
 }
 
 /// A new sheet from a template. Args: `template`, optional `episode`.
 pub fn sheet_template(args: &Value) -> ApiResult {
-    let name = args.get("template").and_then(Value::as_str).unwrap_or("");
-    let episode = args.get("episode").and_then(Value::as_u64).map(|e| e as u32);
+    let name = arg_opt_str(args, "template").unwrap_or_default();
     let sheet = if name.is_empty() {
         BeatSheet::default()
     } else {
-        from_template(name, episode).ok_or_else(|| ApiError::new("bad_args", format!("no template called '{name}'")))?
+        from_template(&name, arg_opt_u32(args, "episode"))
+            .ok_or_else(|| ApiError::new("bad_args", format!("no template called '{name}'")))?
     };
     Ok(json!({ "sheet": sheet }))
 }
@@ -563,8 +502,9 @@ mod tests {
         );
         let s = sheet_template(&json!({ "template": "freytag", "episode": 3 })).unwrap();
         assert_eq!(s["sheet"]["beats"][0]["id"], "e3-exposition");
-        let t = sheet_text(&json!({ "sheet": s["sheet"] })).unwrap();
+        let t = sheet_text(&json!({ "sheet": s["sheet"], "episode": 3 })).unwrap();
         assert!(t["text"].as_str().unwrap().starts_with("template: freytag\nbeats:\n"));
+        assert_eq!(t["file"], "plan/episodes/03.yaml");
         assert!(sheet_template(&json!({ "template": "nope" })).is_err());
     }
 }

@@ -58,6 +58,18 @@ pub fn set_key(frontmatter: &str, key: &str, value: &Value) -> String {
     })
 }
 
+/// Set `key` to `value`, or remove it altogether when `value` is `null` (where
+/// [`set_key`] would write `key: null`, which some files read as a value).
+pub fn set_or_remove(frontmatter: &str, key: &str, value: &Value) -> String {
+    if !value.is_null() {
+        return set_key(frontmatter, key, value);
+    }
+    if find_key(&frontmatter.lines().collect::<Vec<_>>(), key).is_none() {
+        return frontmatter.to_string();
+    }
+    replace_entry(frontmatter, key, |_| Vec::new())
+}
+
 /// Set (or add) `key` to a block list, one flow-style item per line:
 ///
 /// ```yaml
@@ -126,6 +138,14 @@ mod tests {
     use serde_json::json;
 
     const FM: &str = "id: sc-1\ntitle: \"Old\"\n# a comment\nduration: null  # manual override, minutes\ntags:\n- a\n- b\nstatus: draft\n";
+
+    #[test]
+    fn null_removes_with_set_or_remove() {
+        let out = set_or_remove(FM, "tags", &Value::Null);
+        assert_eq!(out, FM.replace("tags:\n- a\n- b\n", ""));
+        assert_eq!(set_or_remove(FM, "missing", &Value::Null), FM);
+        assert_eq!(set_or_remove("a: 1\n", "b", &json!(2)), "a: 1\nb: 2\n");
+    }
 
     #[test]
     fn replaces_scalar_and_keeps_everything_else() {

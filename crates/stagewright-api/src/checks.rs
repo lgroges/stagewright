@@ -5,7 +5,7 @@ use crate::{ApiError, ApiResult};
 use serde_json::{json, Value};
 use stagewright_core::analysis::speakers_in;
 use stagewright_core::check::{check_cues, check_scene, follow, Context, Person, Severity, CHECKS};
-use stagewright_core::frontmatter::set_key;
+use stagewright_core::frontmatter::set_or_remove;
 use stagewright_core::layout::Format;
 use stagewright_core::project::ProjectMeta;
 use stagewright_core::Project;
@@ -215,12 +215,13 @@ pub fn yaml_set_check(text: &str, code: &str, on: bool) -> Result<String, ApiErr
         off.push(code.to_string());
     }
     off.sort();
-    let updated = if off.is_empty() {
-        // Nothing switched off: drop the key rather than leave `checks: {off: []}`.
-        set_key(text, "checks", &Value::Null).replace("checks: null\n", "")
+    // Nothing switched off: drop the key rather than leave `checks: {off: []}`.
+    let value = if off.is_empty() {
+        Value::Null
     } else {
-        set_key(text, "checks", &json!({ "off": off }))
+        json!({ "off": off })
     };
+    let updated = set_or_remove(text, "checks", &value);
     serde_yaml::from_str::<ProjectMeta>(&updated).map_err(|e| ApiError::new("invalid_yaml", e.to_string()))?;
     Ok(updated)
 }
@@ -245,12 +246,7 @@ pub fn yaml_set_option(text: &str, name: &str, value: &Value) -> Result<String, 
     if !OPTIONS.contains(&name) {
         return Err(ApiError::new("bad_args", format!("'{name}' is not a project option")));
     }
-    let updated = if value.is_null() {
-        let removed = set_key(text, name, &Value::Null);
-        removed.replace(&format!("{name}: null\n"), "")
-    } else {
-        set_key(text, name, value)
-    };
+    let updated = set_or_remove(text, name, value);
     serde_yaml::from_str::<ProjectMeta>(&updated).map_err(|e| ApiError::new("invalid_yaml", e.to_string()))?;
     Ok(updated)
 }

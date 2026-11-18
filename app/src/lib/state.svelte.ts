@@ -6,6 +6,7 @@ import {
   api,
   ApiError,
   callLate,
+  errorText,
   isTauri,
   type Comment,
   type CommentOp,
@@ -477,7 +478,7 @@ class AppState {
       } else {
         this.pendingBody ??= body; // keep it so nothing is lost
         this.saveStatus = "error";
-        this.error = e instanceof Error ? e.message : String(e);
+        this.error = errorText(e);
       }
     }
   }
@@ -799,7 +800,7 @@ class AppState {
       await fn();
       this.error = null;
     } catch (e) {
-      this.error = e instanceof Error ? e.message : String(e);
+      this.error = errorText(e);
     } finally {
       this.busy = false;
     }

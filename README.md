@@ -154,18 +154,25 @@ contact details: `contact:` in project.yaml, printed bottom left. The editor als
 (`checks: {off: [...]}` in project.yaml).
 `stagewright check <dir>` prints the same list.
 
-**AI review.** **Review scene** (under the script) asks a model running on your computer,
-through [Ollama](https://ollama.com), for grammar mistakes, typos and wrong words the
-checks miss ("turns away upon to the sight"), in dialogue as well as action. It's told
-to leave period language, the way characters speak and script fragments alone. Its notes
-are marked **AI** (dashed violet) alongside the check's: each is the change it suggests
-and its reason ("“carries” → “carry”? The subject ‘Four men’ is plural."), with a
-one-click change, and they follow the text as you edit. It takes a couple of minutes a
-scene on a laptop; you can keep writing while it runs; reviewing unchanged text again is instant (reviews are kept in `.stagewright/ai/`,
-never shared). It uses Qwen 3.6 if installed (`ollama pull qwen3.6`), else Qwen 3 30B, or the model
-chosen under Production → Checks…, where the Ollama address can be changed too. If Ollama isn't
-running, Review says so and nothing else changes. The script isn't sent anywhere else.
-Switch it off for a project like any check (`ai-grammar`).
+**AI review.** **Review scene** (under the script) asks an AI for grammar mistakes, typos
+and wrong words the checks miss ("turns away upon to the sight"), in dialogue as well as
+action. It's told to leave period language, the way characters speak and script fragments
+alone. Its notes are marked **AI** (dashed violet) alongside the check's: each is the
+change it suggests and its reason ("“carries” → “carry”? The subject ‘Four men’ is
+plural."), with a one-click change, and they follow the text as you edit. You can keep
+writing while it runs, and reviewing unchanged text again is instant (reviews are kept in
+`.stagewright/ai/`, never shared). Choose the AI under Production → Checks…:
+
+- **Ollama**, on your computer: the script isn't sent anywhere. It uses Qwen 3.6 if
+  installed (`ollama pull qwen3.6`), else Qwen 3 30B, or the model you choose. A couple
+  of minutes a scene on a laptop.
+- **Claude** (Anthropic's API): Sonnet 5.5 by default, a few seconds and about 1p a
+  scene. Add an API key there (kept in the system's credential store, not the project).
+  A project's scenes are only sent once you allow it for that project; you're asked the
+  first time.
+
+If the AI can't be reached, Review says why and nothing else changes. Switch it off for
+a project like any check (`ai-grammar`).
 
 **Comments.** Select some text and press **Comment** (Ctrl+Alt+M) to comment on it, as
 in Google Docs. The passage is highlighted, and the comments panel (💬 above the script)

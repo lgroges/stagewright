@@ -1,6 +1,7 @@
-// End-to-end check for the AI review, against a stand-in for Ollama: the
-// Review button, its notes marked apart from the rules', their fixes, saving
-// while a review is under way, and what happens when Ollama isn't there.
+// End-to-end check for the AI review, against stand-ins for Ollama and the
+// Claude API: the Review button, its notes marked apart from the rules', their
+// fixes, saving while a review is under way, what happens when Ollama isn't
+// there, and Claude only once the project allows it.
 //
 //   cargo build -p stagewright && npm run build && node e2e/ai.cjs
 
@@ -51,13 +52,49 @@ function fakeOllama(port, delay) {
   return { server, asked };
 }
 
+/** A stand-in Claude API: a key that works, and one correction with its reason. */
+function fakeClaude(port) {
+  const asked = [];
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const reply = (status, v) => {
+        res.writeHead(status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(v));
+      };
+      if (req.headers["x-api-key"] !== "sk-ant-e2e") return reply(401, { type: "error", error: { message: "invalid x-api-key" } });
+      if (req.url === "/v1/models") return reply(200, { data: [] });
+      if (req.url === "/v1/messages") {
+        const sent = JSON.parse(body);
+        asked.push(sent);
+        const paragraphs = [...sent.messages[0].content.matchAll(/^\[(\d+)\] (.*)$/gm)]
+          .filter(([, , text]) => text.includes("stamps papers without"))
+          .map(([, n, text]) => ({
+            n: Number(n),
+            text: text.replace("stamps papers without", "stamps the papers without"),
+            changes: [{ from: "stamps papers", to: "stamps the papers", why: "papers needs 'the' here" }],
+          }));
+        const text = "```json\n" + JSON.stringify({ paragraphs }) + "\n```";
+        return reply(200, { content: [{ type: "text", text }], stop_reason: "end_turn", usage: { input_tokens: 2000, output_tokens: 300 } });
+      }
+      reply(404, {});
+    });
+  });
+  server.listen(port, "127.0.0.1");
+  return { server, asked };
+}
+
 (async () => {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "sw-ai-"));
   copyDir(path.join(repo, "fixtures/stage-sample"), project);
   const port = pickPort(5700, 250);
   const ollamaPort = pickPort(5950, 40);
   const ollama = fakeOllama(ollamaPort, 2500);
-  const server = spawn(bin, ["serve", project, "--port", String(port), "--static", path.join(repo, "app/dist")], { stdio: "pipe" });
+  const claudePort = pickPort(6100, 40);
+  const claude = fakeClaude(claudePort);
+  const env = { ...process.env, STAGEWRIGHT_CLAUDE_URL: `http://127.0.0.1:${claudePort}`, ANTHROPIC_API_KEY: "sk-ant-e2e" };
+  const server = spawn(bin, ["serve", project, "--port", String(port), "--static", path.join(repo, "app/dist")], { stdio: "pipe", env });
   await serverUp(port);
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -136,8 +173,37 @@ function fakeOllama(port, delay) {
     await page.locator('[data-testid="ai-settings"]').scrollIntoViewIfNeeded();
     await snap("ai-3-settings.png");
 
+    // 4b. Claude instead: the key works; nothing is sent until the project allows it
+    await page.selectOption('[data-testid="ai-provider"]', "claude");
+    await page.waitForFunction(() => /The key works/.test(document.querySelector('[data-testid="ai-reachable"]')?.textContent ?? ""), null, { timeout: 8000 });
+    check("Claude's settings say the key works", true);
+    check("and the project hasn't allowed sending scenes", !(await page.locator('[data-testid="ai-cloud"] input').isChecked()));
+    await snap("ai-4-claude-settings.png");
+    await page.click('nav[aria-label="Views"] >> text=Script');
+    await page.click('[data-testid="ai-review"]');
+    await page.waitForSelector('[data-testid="ai-allow"]');
+    check("Review asks before sending a scene to Anthropic", claude.asked.length === 0 && /Allow it for this project/.test(await status()));
+    await page.click('[data-testid="ai-allow"]');
+    await until(() => /^ai: \{"?cloud"?: ?true\}/m.test(fs.readFileSync(path.join(project, "project.yaml"), "utf8")), 3000, "allowed");
+    check("allowing it is saved in project.yaml", true);
+    await page.waitForFunction(() => /Sonnet 5\.5: 1 note/.test(document.querySelector('[data-testid="ai-status"]')?.textContent ?? ""), null, { timeout: 8000 });
+    check("then the review runs with Claude, with its cost", /Cost: under \$0\.01/.test(await status()), await status());
+    const sent = claude.asked[0];
+    check("asking Sonnet 5.5 for the whole scene", sent.model === "claude-sonnet-5-5" && /\[1\] /.test(sent.messages[0].content));
+    await page.click('[data-testid="issue-count"]');
+    await page.waitForSelector(".cm-panel-lint");
+    // The editor checks again a moment after the review.
+    const want = "Add \u201cthe\u201d? Papers needs 'the' here.";
+    await until(async () => (await page.locator(".cm-panel-lint").textContent()).includes(want), 5000, "Claude's note").catch(() => {});
+    const claudePanel = await page.locator(".cm-panel-lint").textContent();
+    check("its note gives the change and Claude's reason", claudePanel.includes(want), claudePanel);
+    await page.keyboard.press("Escape");
+
     // 5. Switched off for the project
-    await page.locator('[data-testid="script-check"] label:has-text("AI review") input').uncheck();
+    await page.click('nav[aria-label="Views"] >> text=Production');
+    const toggle = page.locator('[data-testid="script-check"] label:has-text("AI review") input');
+    if (!(await toggle.isVisible())) await page.click('button:has-text("Checks…")');
+    await toggle.uncheck();
     await until(() => /ai-grammar/.test(fs.readFileSync(path.join(project, "project.yaml"), "utf8")), 3000, "switched off");
     await page.click('nav[aria-label="Views"] >> text=Script');
     await page.click('[data-testid="ai-review"]');
@@ -152,6 +218,7 @@ function fakeOllama(port, delay) {
     await browser.close();
     server.kill();
     ollama.server.close();
+    claude.server.close();
   }
   finish();
 })();

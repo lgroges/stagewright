@@ -10,9 +10,17 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 serde_yaml = "0.9.34"
 stagewright-core = { path = "../stagewright-core" }
-# AI review: Ollama on this computer, over plain HTTP. No TLS needed.
-ureq = { version = "3.5.1", default-features = false, features = ["json"] }
+# AI review: Ollama on this computer over plain HTTP, the Claude API over TLS.
+ureq = { version = "3.5.1", default-features = false, features = ["json", "rustls"] }
 
 [dev-dependencies]
 base64 = "0.23.1"
 tempfile = "3.27.0"
+
+# The Claude API key, in the system's credential store. Other systems use the
+# ANTHROPIC_API_KEY environment variable.
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3.6.3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6.3", features = ["apple-native"] }

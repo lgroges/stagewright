@@ -19,7 +19,7 @@ Three releases:
 | 0.10.0 | Notes on characters and places, beats, research, links between them | 7: new files and folders |
 | 0.11.0 | The editorial read: notes on a scene from the AI, informed by the context web | none |
 
-## 1. Claude for the copy-edit (0.9.0)
+## 1. Claude for the copy-edit (0.9.0) — built 2026-11-18
 
 What's built (Review scene with Ollama) gets a second provider.
 

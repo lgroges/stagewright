@@ -443,6 +443,16 @@
     <div class="ai-bar" class:failed={review.status === "failed"} role="status" data-testid="ai-status">
       <span class="ai-tag">AI</span>
       <span>{review.message}</span>
+      {#if review.status === "consent"}
+        <button
+          class="ghost"
+          data-testid="ai-allow"
+          onclick={async () => {
+            await app.allowCloud(true);
+            if (view) void app.reviewScene(view.state.doc.toString());
+          }}>Allow and review</button
+        >
+      {/if}
       {#if review.status !== "busy"}
         {#if app.scene && app.aiFindings[app.scene.id]?.length}
           <button class="ghost" onclick={() => app.scene && app.clearAi(app.scene.id)}>Clear</button>

@@ -7,6 +7,12 @@ change, the cursor, is listed under 0.3.0.)
 
 ## Unreleased
 
+- **AI review with Claude**: under Production → Checks…, the review can use Claude
+  (Anthropic) instead of Ollama: Sonnet 5.5 by default (about 1p a scene, a few
+  seconds), or Opus 5.5 or Haiku 5.5. Each suggestion comes with Claude's reason, and
+  the cost is shown after a review. Your API key is kept in Windows' Credential
+  Manager or the macOS Keychain, never in the project. A project's scenes are only
+  sent once you allow it for that project (you're asked the first time).
 - **AI review** (try-out): **Review scene**, under the script, asks a local model
   (Qwen 3.6 or Qwen 3 through Ollama, on your computer) to correct grammar mistakes,
   typos and wrong words the checks miss, in dialogue as well as action, leaving period

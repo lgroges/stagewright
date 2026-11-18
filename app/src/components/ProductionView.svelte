@@ -32,15 +32,34 @@
     void app.project;
     void loadCheck();
   });
-  // The AI review's settings (this computer's, not the project's).
+  // The AI review's settings (this computer's, not the project's, except the
+  // project's permission to send its text to Anthropic).
+  let aiProvider = $state(app.aiProvider);
   let aiUrl = $state(app.aiUrl);
   let aiModel = $state(app.aiModel);
+  let claudeModel = $state(app.aiClaudeModel);
   let aiStatus = $state<AiStatus | null>(null);
+  let keyDraft = $state("");
+  let keyError = $state("");
+  const ollamaModels = $derived(
+    aiStatus?.ok && aiProvider === "ollama" ? (aiStatus.models as string[]).filter((m) => typeof m === "string") : [],
+  );
   async function testAi() {
     app.setAi(aiUrl, aiModel);
+    app.setAiProvider(aiProvider, claudeModel);
     aiUrl = app.aiUrl;
     aiStatus = null;
-    aiStatus = await ai.status(app.aiUrl);
+    aiStatus = await ai.status(app.aiProvider, app.aiUrl);
+  }
+  async function saveKey(key: string) {
+    keyError = "";
+    try {
+      await ai.setKey(key);
+      keyDraft = "";
+      await testAi();
+    } catch (e) {
+      keyError = String((e as Error)?.message ?? e);
+    }
   }
   $effect(() => {
     if (showSettings) untrack(() => void testAi());
@@ -167,27 +186,65 @@
         <div class="ai-settings" data-testid="ai-settings">
           <strong>AI review</strong>
           <span class="muted small">
-            Review scene, under the script, asks a model running on this computer (through Ollama) for grammar and wrong
-            words the checks miss. The script isn't sent anywhere else. These settings are this computer's.
+            Review scene, under the script, asks an AI for grammar and wrong words the checks miss. These settings are
+            this computer's.
           </span>
           <label>
-            Ollama
-            <input bind:value={aiUrl} onchange={testAi} spellcheck="false" data-testid="ai-url" />
-          </label>
-          <label>
-            Model
-            <select bind:value={aiModel} onchange={() => app.setAi(aiUrl, aiModel)} data-testid="ai-model">
-              <option value="">The best installed (Qwen 3.6, Qwen 3 …)</option>
-              {#if aiStatus?.ok}
-                {#each aiStatus.models as m (m)}<option value={m}>{m}</option>{/each}
-              {/if}
-              {#if aiModel && !(aiStatus?.ok && aiStatus.models.includes(aiModel))}<option value={aiModel}>{aiModel}</option>{/if}
+            Use
+            <select bind:value={aiProvider} onchange={testAi} data-testid="ai-provider">
+              <option value="ollama">Ollama, on this computer</option>
+              <option value="claude">Claude (Anthropic)</option>
             </select>
           </label>
-          <span class="small" class:bad={aiStatus && !aiStatus.ok} data-testid="ai-reachable">
-            {#if !aiStatus}Checking…{:else if aiStatus.ok}Ollama is running ({aiStatus.models.length}
-              {aiStatus.models.length === 1 ? "model" : "models"}).{:else}{aiStatus.reason}{/if}
-          </span>
+          {#if aiProvider === "ollama"}
+            <label>
+              Ollama
+              <input bind:value={aiUrl} onchange={testAi} spellcheck="false" data-testid="ai-url" />
+            </label>
+            <label>
+              Model
+              <select bind:value={aiModel} onchange={() => app.setAi(aiUrl, aiModel)} data-testid="ai-model">
+                <option value="">The best installed (Qwen 3.6, Qwen 3 …)</option>
+                {#each ollamaModels as m (m)}<option value={m}>{m}</option>{/each}
+                {#if aiModel && !ollamaModels.includes(aiModel)}<option value={aiModel}>{aiModel}</option>{/if}
+              </select>
+            </label>
+            <span class="small" class:bad={aiStatus && !aiStatus.ok} data-testid="ai-reachable">
+              {#if !aiStatus}Checking…{:else if aiStatus.ok}Ollama is running ({ollamaModels.length}
+                {ollamaModels.length === 1 ? "model" : "models"}). The script isn't sent anywhere else.{:else}{aiStatus.reason}{/if}
+            </span>
+          {:else}
+            <label>
+              Model
+              <select bind:value={claudeModel} onchange={() => app.setAiProvider("claude", claudeModel)} data-testid="ai-claude-model">
+                <option value="claude-sonnet-5-5">Sonnet 5.5 (about 1p a scene)</option>
+                <option value="claude-opus-5-5">Opus 5.5 (about 2–3p a scene)</option>
+                <option value="claude-haiku-5-5">Haiku 5.5 (a fraction of 1p)</option>
+              </select>
+            </label>
+            <label>
+              API key
+              <input
+                type="password"
+                bind:value={keyDraft}
+                placeholder={aiStatus?.has_key ? "saved (type to replace)" : "sk-ant-…"}
+                autocomplete="off"
+                spellcheck="false"
+                data-testid="ai-key"
+              />
+            </label>
+            <button class="ghost" disabled={!keyDraft.trim()} onclick={() => saveKey(keyDraft)}>Save key</button>
+            {#if aiStatus?.stored}<button class="ghost" onclick={() => saveKey("")}>Remove key</button>{/if}
+            <span class="small" class:bad={(aiStatus && !aiStatus.ok) || keyError} data-testid="ai-reachable">
+              {#if keyError}{keyError}{:else if !aiStatus}Checking…{:else if aiStatus.ok}The key works{aiStatus.stored
+                  ? ". It's kept in this computer's credential store, not in the project."
+                  : " (from ANTHROPIC_API_KEY)."}{:else}{aiStatus.reason}{/if}
+            </span>
+            <label class="consent" data-testid="ai-cloud">
+              <input type="checkbox" checked={app.project?.ai_cloud} onchange={(e) => app.allowCloud(e.currentTarget.checked)} />
+              This project may send its scenes to Anthropic for review{app.collab ? " (co-written: check with your co-writers)" : ""}
+            </label>
+          {/if}
         </div>
       {/if}
       {#each byScene as g (g.scene + "|" + g.label)}
@@ -551,8 +608,12 @@
     align-items: center;
     gap: 6px;
   }
-  .ai-settings input {
+  .ai-settings input:not([type="checkbox"]) {
     width: 220px;
+  }
+  .ai-settings .consent {
+    flex-basis: 100%;
+    justify-content: flex-start;
   }
   .ai-settings .bad {
     color: var(--bad);

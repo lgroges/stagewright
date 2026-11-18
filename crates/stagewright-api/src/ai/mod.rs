@@ -11,6 +11,8 @@
 //! First review: grammar, typos and wrong words, in dialogue as well as action,
 //! leaving period language and characters' own ways of speaking alone.
 
+pub mod claude;
+
 use crate::{ApiError, ApiResult};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -21,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Bump when the prompt or schema changes, so cached reviews are redone.
-const PROMPT_VERSION: u32 = 5;
+const PROMPT_VERSION: u32 = 6;
 pub const DEFAULT_URL: &str = "http://127.0.0.1:11434";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,8 +77,16 @@ fn unavailable(reason: impl Into<String>) -> ApiResult {
     Ok(json!({ "ok": false, "reason": reason.into() }))
 }
 
-/// Whether Ollama answers, and which models it has.
+/// Whether the AI is ready: for `provider: claude`, whether there's a key the
+/// API accepts; otherwise whether Ollama answers at `url`, and its models.
 pub fn status(args: &Value) -> ApiResult {
+    if args.get("provider").and_then(Value::as_str) == Some("claude") {
+        return claude::status(&claude::Claude::from_env());
+    }
+    ollama_status(args)
+}
+
+fn ollama_status(args: &Value) -> ApiResult {
     let url = base(args.get("url").and_then(Value::as_str));
     let mut res = match agent(Duration::from_secs(4)).get(format!("{url}/api/tags")).call() {
         Ok(r) => r,
@@ -271,15 +281,24 @@ sentence fragments in action (scripts are written that way); names, and words in
 {english} spelling.\nAnswer only with JSON matching this schema: {SCHEMA}",
         kind = format_name(meta),
     );
-    let mut user = format!("The script: {}", meta.title);
+    let user = format!("{}\n\n{}", header(meta, about), numbered(paras, range));
+    json!([
+        { "role": "system", "content": system },
+        { "role": "user", "content": user },
+    ])
+}
+
+/// What the model is told about the script and the scene, before the text.
+fn header(meta: &ProjectMeta, about: &About) -> String {
+    let mut out = format!("The script: {}", meta.title);
     if let Some(sub) = meta.subtitle.as_deref().filter(|s| !s.trim().is_empty()) {
-        user.push_str(&format!(" ({sub})"));
+        out.push_str(&format!(" ({sub})"));
     }
-    user.push('.');
+    out.push('.');
     if let Some(syn) = about.synopsis.map(str::trim).filter(|s| !s.is_empty()) {
-        user.push_str(&format!(" This scene: {}", syn.replace('\n', " ")));
+        out.push_str(&format!(" This scene: {}", syn.replace('\n', " ")));
     }
-    user.push_str(" Judge from the script and the scene when and where it is set.");
+    out.push_str(" Judge from the script and the scene when and where it is set.");
     // Ordinary-case names only: capitals are left alone anyway.
     let names: Vec<&str> = about
         .cast
@@ -288,9 +307,14 @@ sentence fragments in action (scripts are written that way); names, and words in
         .filter(|n| n.chars().any(char::is_lowercase))
         .collect();
     if !names.is_empty() {
-        user.push_str(&format!("\nCharacters: {}.", names.join(", ")));
+        out.push_str(&format!("\nCharacters: {}.", names.join(", ")));
     }
-    let numbered: Vec<String> = range
+    out
+}
+
+/// Paragraphs `range`, numbered for the whole scene: "[3] DEE: Thou art come."
+fn numbered(paras: &[Paragraph], range: std::ops::Range<usize>) -> String {
+    range
         .map(|n| {
             let p = &paras[n];
             format!(
@@ -300,13 +324,8 @@ sentence fragments in action (scripts are written that way); names, and words in
                 p.text
             )
         })
-        .collect();
-    user.push_str("\n\n");
-    user.push_str(&numbered.join("\n\n"));
-    json!([
-        { "role": "system", "content": system },
-        { "role": "user", "content": user },
-    ])
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 /// Words and punctuation, as byte ranges.
@@ -538,6 +557,73 @@ pub fn issues(body: &str, findings: &[Finding], existing: &[Issue]) -> Vec<Issue
     out
 }
 
+fn cached(root: &Path, scene: &str, key: &str) -> Option<Value> {
+    std::fs::read_to_string(cache_path(root, scene))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .filter(|v| v["key"] == key)
+}
+
+/// Keep a review. A convenience: one that can't be saved is still shown.
+fn keep(root: &Path, scene: &str, key: &str, model: &str, findings: &[Finding]) {
+    let cache = cache_path(root, scene);
+    if crate::ops::collab_dir(root).is_ok() {
+        if let Some(dir) = cache.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(
+            &cache,
+            json!({ "key": key, "model": model, "findings": findings }).to_string(),
+        );
+    }
+}
+
+/// The review with Claude: only for a project that allows its text to go to
+/// Anthropic.
+fn review_claude(
+    root: &Path,
+    scene: &str,
+    body: &str,
+    project: &stagewright_core::project::Project,
+    model: Option<&str>,
+    claude_conn: impl FnOnce() -> claude::Claude,
+) -> ApiResult {
+    let meta = &project.meta;
+    if !meta.ai.cloud {
+        return Ok(json!({
+            "ok": false,
+            "needs_consent": true,
+            "reason": "Reviewing with Claude sends this project's scenes to Anthropic. Allow it for this project?",
+        }));
+    }
+    let model = model.filter(|m| !m.is_empty()).unwrap_or(claude::DEFAULT_MODEL);
+    let paras = paragraphs(body);
+    if paras.is_empty() {
+        return Ok(json!({ "ok": true, "findings": [], "cached": false, "model": model }));
+    }
+    let synopsis = project
+        .scenes
+        .iter()
+        .find(|s| s.scene.meta.id == scene)
+        .and_then(|s| s.scene.meta.synopsis.as_deref());
+    let about = About {
+        synopsis,
+        cast: &project.characters,
+    };
+    let request = claude::body(model, meta, &about, &paras);
+    let key = cache_key(&format!("claude:{model}"), &request);
+    if let Some(hit) = cached(root, scene, &key) {
+        return Ok(json!({ "ok": true, "findings": hit["findings"], "cached": true, "model": model }));
+    }
+    match claude::review(&claude_conn(), model, body, &paras, &request) {
+        Ok((findings, cost)) => {
+            keep(root, scene, &key, model, &findings);
+            Ok(json!({ "ok": true, "findings": findings, "cached": false, "model": model, "cost_usd": cost }))
+        }
+        Err(reason) => unavailable(reason),
+    }
+}
+
 fn cache_path(root: &Path, scene: &str) -> PathBuf {
     let safe: String = scene
         .chars()
@@ -667,8 +753,15 @@ fn ask_with(url: &str, model: &str, messages: &Value, predict: u32, schema: &str
 }
 
 /// Review one scene. Args: `root`, `scene` (id), `body` (the text as in the
-/// editor), optional `model` and `url`.
+/// editor), `provider` (`ollama`, the default, or `claude`), optional `model`,
+/// and Ollama's `url`.
 pub fn review(args: &Value) -> ApiResult {
+    review_with(args, claude::Claude::from_env)
+}
+
+/// Review one scene. Args: `root`, `scene` (id), `body` (the text as in the
+/// editor), optional `model` and `url`.
+pub fn review_with(args: &Value, claude_conn: impl FnOnce() -> claude::Claude) -> ApiResult {
     let s = |k: &str| args.get(k).and_then(Value::as_str);
     let root = PathBuf::from(s("root").ok_or_else(|| ApiError::new("bad_args", "missing 'root'"))?);
     let scene = s("scene").ok_or_else(|| ApiError::new("bad_args", "missing 'scene'"))?;
@@ -687,12 +780,15 @@ pub fn review(args: &Value) -> ApiResult {
     if body.trim().is_empty() {
         return Ok(json!({ "ok": true, "findings": [], "cached": false, "model": Value::Null }));
     }
+    if s("provider") == Some("claude") {
+        return review_claude(&root, scene, &body, &project, s("model"), claude_conn);
+    }
     let url = base(s("url"));
     // The model: as asked, or the best installed one.
     let model = match pick_model(s("model"), &[]) {
         Some(m) => m,
         None => {
-            let st = status(&json!({ "url": url }))?;
+            let st = ollama_status(&json!({ "url": url }))?;
             if st["ok"] != true {
                 return Ok(st);
             }
@@ -724,12 +820,7 @@ pub fn review(args: &Value) -> ApiResult {
         })
         .collect();
     let key = cache_key(&model, &Value::Array(parts.iter().map(|(m, _)| m.clone()).collect()));
-    let cache = cache_path(&root, scene);
-    if let Some(hit) = std::fs::read_to_string(&cache)
-        .ok()
-        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-        .filter(|v| v["key"] == key.as_str())
-    {
+    if let Some(hit) = cached(&root, scene, &key) {
         return Ok(json!({ "ok": true, "findings": hit["findings"], "cached": true, "model": model }));
     }
     let mut findings = Vec::new();
@@ -743,16 +834,7 @@ pub fn review(args: &Value) -> ApiResult {
     if !findings.is_empty() {
         explain(&url, &model, &mut findings);
     }
-    // The cache is a convenience: a review that can't be saved is still shown.
-    if crate::ops::collab_dir(&root).is_ok() {
-        if let Some(dir) = cache.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let _ = std::fs::write(
-            &cache,
-            json!({ "key": key, "model": model, "findings": findings }).to_string(),
-        );
-    }
+    keep(&root, scene, &key, &model, &findings);
     Ok(json!({ "ok": true, "findings": findings, "cached": false, "model": model }))
 }
 
@@ -920,11 +1002,15 @@ mod tests {
                 let (mut sock, _) = listener.accept().unwrap();
                 let mut r = BufReader::new(sock.try_clone().unwrap());
                 let mut len = 0;
+                let mut key = String::new();
                 loop {
                     let mut l = String::new();
                     r.read_line(&mut l).unwrap();
                     if let Some(v) = l.to_ascii_lowercase().strip_prefix("content-length:") {
                         len = v.trim().parse().unwrap();
+                    }
+                    if let Some(v) = l.to_ascii_lowercase().strip_prefix("x-api-key:") {
+                        key = v.trim().to_string();
                     }
                     if l == "\r\n" || l.is_empty() {
                         break;
@@ -932,7 +1018,10 @@ mod tests {
                 }
                 let mut got = vec![0; len];
                 r.read_exact(&mut got).unwrap();
-                tx.send(String::from_utf8(got).unwrap()).unwrap();
+                let got = String::from_utf8(got).unwrap();
+                // A request with an API key: the key, a tab, then the body.
+                tx.send(if key.is_empty() { got } else { format!("{key}\t{got}") })
+                    .unwrap();
                 let _ = write!(
                     sock,
                     "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -952,6 +1041,127 @@ mod tests {
         )
         .unwrap();
         d
+    }
+
+    fn claude_at(url: &str, key: Option<&str>) -> claude::Claude {
+        claude::Claude {
+            url: url.into(),
+            key: key.map(str::to_string),
+            stored: false,
+        }
+    }
+
+    #[test]
+    fn claude_needs_the_projects_permission_and_a_key() {
+        let d = project();
+        let args = json!({ "root": d.path(), "scene": "sc-1", "body": "Rain falls.", "provider": "claude" });
+        let v = review_with(&args, || panic!("not asked before permission")).unwrap();
+        assert_eq!(
+            (v["ok"].as_bool(), v["needs_consent"].as_bool()),
+            (Some(false), Some(true))
+        );
+        std::fs::write(
+            d.path().join("project.yaml"),
+            "title: T\nformat: film\nai: {cloud: true}\n",
+        )
+        .unwrap();
+        let v = review_with(&args, || claude_at("http://127.0.0.1:9", None)).unwrap();
+        assert!(v["reason"].as_str().unwrap().contains("API key"), "{v}");
+        // The option round-trips in project.yaml.
+        let y = crate::checks::yaml_set_option("title: T\n", "ai", &json!({ "cloud": true })).unwrap();
+        let meta: ProjectMeta = serde_yaml::from_str(&y).unwrap();
+        assert!(meta.ai.cloud);
+    }
+
+    #[test]
+    fn a_claude_review_end_to_end() {
+        let d = project();
+        std::fs::write(
+            d.path().join("project.yaml"),
+            "title: T\nformat: stage\nai: {cloud: true}\n",
+        )
+        .unwrap();
+        let body = "The quay.\n\nHETTIE\nHes coming on the coach.\n\nTOBIAS straightens the sign, which fall down.";
+        let answer = json!({ "paragraphs": [
+            { "n": 2, "text": "He\u{2019}s coming on the coach.",
+              "changes": [{ "from": "Hes", "to": "He\u{2019}s", "why": "missing apostrophe" }] },
+            { "n": 3, "text": "TOBIAS straightens the sign, which falls down.",
+              "changes": [{ "from": "which fall", "to": "which falls", "why": "the verb agrees with 'sign'" }] }
+        ]});
+        let reply = json!({
+            "content": [{ "type": "thinking", "thinking": "" }, { "type": "text", "text": format!("```json\n{answer}\n```") }],
+            "stop_reason": "end_turn",
+            "usage": { "input_tokens": 1000, "output_tokens": 500 }
+        });
+        let (url, got) = fake(vec![(200, reply.to_string())]);
+        let args = json!({ "root": d.path(), "scene": "sc-1", "body": body, "provider": "claude" });
+        let v = review_with(&args, || claude_at(&url, Some("sk-ant-test"))).unwrap();
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["model"], "claude-sonnet-5-5");
+        assert!((v["cost_usd"].as_f64().unwrap() - 0.007).abs() < 1e-9);
+        let msgs: Vec<&str> = v["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["message"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            msgs,
+            vec![
+                "\u{201c}Hes\u{201d} \u{2192} \u{201c}He\u{2019}s\u{201d}? Missing apostrophe.",
+                "\u{201c}fall\u{201d} \u{2192} \u{201c}falls\u{201d}? The verb agrees with 'sign'."
+            ]
+        );
+        let sent = got.recv().unwrap();
+        let (key, req) = sent.split_once('\t').unwrap();
+        assert_eq!(key, "sk-ant-test");
+        let req: Value = serde_json::from_str(req).unwrap();
+        assert!(req["system"]
+            .as_str()
+            .unwrap()
+            .starts_with("You are a careful copy editor for a stage play in British English."));
+        assert!(req["messages"][0]["content"].as_str().unwrap().ends_with("[1] The quay.\n\n[2] HETTIE: Hes coming on the coach.\n\n[3] TOBIAS straightens the sign, which fall down."));
+        // Again, unchanged: kept, not asked (nothing is listening any more).
+        let again = review_with(&args, || claude_at("http://127.0.0.1:9", Some("sk-ant-test"))).unwrap();
+        assert_eq!(again["cached"], true);
+    }
+
+    #[test]
+    fn claude_failures_come_back_as_reasons() {
+        let d = project();
+        std::fs::write(d.path().join("project.yaml"), "title: T\nai: {cloud: true}\n").unwrap();
+        let ask = |status: u16, body: Value| {
+            let (url, _g) = fake(vec![(status, body.to_string())]);
+            let args =
+                json!({ "root": d.path(), "scene": "sc-1", "body": format!("Rain {status}."), "provider": "claude" });
+            review_with(&args, || claude_at(&url, Some("sk-ant-x"))).unwrap()["reason"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        let err = |m: &str| json!({ "type": "error", "error": { "type": "x", "message": m } });
+        assert!(ask(401, err("invalid x-api-key")).contains("wasn't accepted"));
+        assert!(
+            ask(400, err("Your credit balance is too low to access the Anthropic API.")).contains("credit has run out")
+        );
+        assert!(ask(529, err("Overloaded")).contains("busy"));
+        assert!(ask(
+            200,
+            json!({ "content": [{ "type": "text", "text": "Sure! Here you go." }] })
+        )
+        .contains("expected form"));
+        // Status: no key; a key that works; one that doesn't.
+        assert_eq!(
+            claude::status(&claude_at("http://127.0.0.1:9", None)).unwrap()["has_key"],
+            false
+        );
+        let (url, _g) = fake(vec![(200, json!({ "data": [] }).to_string())]);
+        assert_eq!(claude::status(&claude_at(&url, Some("sk-ant-x"))).unwrap()["ok"], true);
+        let (url, _g) = fake(vec![(401, err("invalid x-api-key").to_string())]);
+        let v = claude::status(&claude_at(&url, Some("sk-ant-x"))).unwrap();
+        assert!(v["reason"].as_str().unwrap().contains("wasn't accepted"));
+        // A key that isn't one.
+        assert!(claude::set_key(&json!({ "key": "hello" })).is_err());
     }
 
     #[test]

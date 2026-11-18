@@ -4,6 +4,26 @@ Choices made about Stagewright and why, newest first. Each entry: what we chose,
 the reason, and what we didn't do. Ideas still open or turned down are in
 [ideas.md](ideas.md).
 
+## 2026-11-18 · The copy-edit with Claude (built)
+
+- **One request a scene**, the prompt as tested: the whole scene numbered, an answer
+  listing only the corrected paragraphs with each change's `from`, `to` and `why`.
+  The word diff still places the changes; the reason is matched to each by its words,
+  or is the paragraph's only one. No second request for reasons, unlike Ollama.
+- **Sonnet 5.5 by default**, with Opus 5.5 and Haiku 5.5 offered. Default effort:
+  high effort found nothing more in the tests.
+- **The key** is saved in Windows' Credential Manager or the macOS Keychain (the
+  `keyring` crate), or read from ANTHROPIC_API_KEY (other systems, and the tests).
+  It's only read in Rust and never reaches the page.
+- **A project allows sending its scenes to Anthropic** (`ai: {cloud: true}`), asked
+  the first time with an "Allow and review" button, and shown as a checkbox in
+  Production → Checks…. Off by default, since scripts may be unpublished or
+  co-written.
+- **The cost** of each review is worked out from the reply's token counts and the
+  model's prices, and shown in dollars (Anthropic bills in dollars).
+- Tests use a stand-in API (STAGEWRIGHT_CLAUDE_URL), in Rust and in the end-to-end
+  suite.
+
 ## 2026-11-18 · Plan: a project context web, then an AI editor
 
 The plan is in [plans/context-and-ai.md](plans/context-and-ai.md). Settled so far:

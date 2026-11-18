@@ -109,6 +109,8 @@ export interface ProjectView {
   auto_contd: boolean;
   /** A shooting script (project.yaml shooting_script); otherwise a spec script. */
   shooting_script: boolean;
+  /** The AI review may send this project's text to Anthropic (project.yaml ai.cloud). */
+  ai_cloud: boolean;
   /** How exports lay the script out, and the layouts this format offers. */
   layout: Layout;
   layouts: { id: Layout; name: string }[];
@@ -341,20 +343,29 @@ export interface AiFinding {
 }
 
 export type AiReview =
-  | { ok: true; findings: AiFinding[]; cached: boolean; model: string | null }
-  | { ok: false; reason: string; off?: boolean };
+  | { ok: true; findings: AiFinding[]; cached: boolean; model: string | null; cost_usd?: number | null }
+  | { ok: false; reason: string; off?: boolean; needs_consent?: boolean };
 
-export type AiStatus = { ok: true; url: string; models: string[] } | { ok: false; reason: string };
+/** Where the AI runs: Ollama on this computer, or Claude (Anthropic). */
+export type AiProvider = "ollama" | "claude";
+
+export type AiStatus =
+  | { ok: true; url?: string; models: string[] | { id: string; name: string }[]; has_key?: boolean; stored?: boolean }
+  | { ok: false; reason: string; has_key?: boolean; stored?: boolean; models?: { id: string; name: string }[] };
+
+const aiFailed = (e: unknown) => ({ ok: false as const, reason: String((e as Error)?.message ?? e) });
 
 /**
- * The AI review (a local model, through Ollama). These don't queue behind
- * saves (a review can take minutes), and never throw: a failure is `ok: false`.
+ * The AI review. These don't queue behind saves (a review can take minutes),
+ * and status and review never throw: a failure is `ok: false`.
  */
 export const ai = {
-  status: (url: string) =>
-    (transport("ai_status", { url }) as Promise<AiStatus>).catch((e): AiStatus => ({ ok: false, reason: String(e?.message ?? e) })),
-  review: (args: { root: string; scene: string; body: string; url: string; model: string }) =>
-    (transport("ai_review", args) as Promise<AiReview>).catch((e): AiReview => ({ ok: false, reason: String(e?.message ?? e) })),
+  status: (provider: AiProvider, url: string) =>
+    (transport("ai_status", { provider, url }) as Promise<AiStatus>).catch(aiFailed),
+  review: (args: { root: string; scene: string; body: string; provider: AiProvider; url: string; model: string }) =>
+    (transport("ai_review", args) as Promise<AiReview>).catch(aiFailed),
+  /** Save the Claude API key in the system's credential store ("" removes it). */
+  setKey: (key: string) => transport("ai_key_set", { key }) as Promise<{ ok: true; has_key: boolean }>,
 };
 
 export interface CollabConfig {

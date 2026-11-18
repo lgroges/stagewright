@@ -5,7 +5,7 @@ holds and how to put the script together in order. Keep it current: any change t
 the files the app reads or writes updates this page (and its version) in the same
 commit.
 
-**Format version 5** · last changed in Stagewright 0.9.0 (unreleased)
+**Format version 6** · last changed in Stagewright 0.9.0 (unreleased)
 
 ## A project is a folder
 
@@ -49,6 +49,7 @@ folders and file names are what decide the order.
 | `layout` | PDF layout: `uk-stage` (stage plays) or `bbc-studio` (TV); absent means standard. |
 | `dialect` | The English the grammar check expects: `british` (default), `american`, `canadian`, `australian`, `indian`. |
 | `checks` | `{off: [codes]}`: script-check rules switched off (`ai-grammar` switches off the AI review). |
+| `ai` | `{cloud: true}`: the AI review may send this project's scenes to Anthropic (Claude). Absent: it may not. |
 
 ## characters.yaml
 
@@ -155,6 +156,8 @@ rewritten and the comment is detached.
 
 ## Changes to this format
 
+- **6** (0.9.0): `ai: {cloud: true}`.
+- **5** (0.9.0): the `ai-grammar` check code; AI reviews kept in `.stagewright/ai/`.
 - **4** (0.7.0): `dialect`.
 - **3** (0.6.0): `layout`; parentheticals may wrap onto several lines.
 - **2** (0.5.0): `comments.yaml`; `contact`, `shooting_script`; characters' `short`.

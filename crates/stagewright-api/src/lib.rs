@@ -52,13 +52,14 @@ pub type ApiResult = Result<Value, ApiError>;
 
 /// Commands that need no open project and may take a long time (the AI review):
 /// run them without holding the workspace, so saving and checking go on meanwhile.
-pub const FREE_COMMANDS: &[&str] = &["ai_status", "ai_review"];
+pub const FREE_COMMANDS: &[&str] = &["ai_status", "ai_review", "ai_key_set"];
 
 /// Run one of `FREE_COMMANDS`; `None` for any other.
 pub fn dispatch_free(cmd: &str, args: &Value) -> Option<ApiResult> {
     match cmd {
         "ai_status" => Some(ai::status(args)),
         "ai_review" => Some(ai::review(args)),
+        "ai_key_set" => Some(ai::claude::set_key(args)),
         _ => None,
     }
 }

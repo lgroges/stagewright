@@ -7,6 +7,7 @@ import {
   api,
   ApiError,
   type AiFinding,
+  type AiProvider,
   callLate,
   isTauri,
   type Comment,
@@ -46,6 +47,19 @@ const NAME_KEY = "stagewright.name";
 const DEFAULT_RELAY = "ws://127.0.0.1:4444";
 const AI_URL_KEY = "stagewright.ai.url";
 const AI_MODEL_KEY = "stagewright.ai.model";
+const AI_PROVIDER_KEY = "stagewright.ai.provider";
+const AI_CLAUDE_MODEL_KEY = "stagewright.ai.claude-model";
+export const DEFAULT_CLAUDE_MODEL = "claude-sonnet-5-5";
+
+const CLAUDE_NAMES: Record<string, string> = {
+  "claude-sonnet-5-5": "Sonnet 5.5",
+  "claude-opus-5-5": "Opus 5.5",
+  "claude-haiku-5-5": "Haiku 5.5",
+};
+/** "Sonnet 5.5" for "claude-sonnet-5-5". */
+export const claudeName = (id: string) => CLAUDE_NAMES[id] ?? id;
+/** "$0.013", or "under $0.01". */
+const dollars = (usd: number) => (usd < 0.01 ? "under $0.01" : `$${usd.toFixed(usd < 1 ? 3 : 2)}`);
 export const DEFAULT_AI_URL = "http://127.0.0.1:11434";
 
 function readPref(key: string, fallback: string): string {
@@ -664,16 +678,31 @@ class AppState {
   /** Where Ollama is, and the model to use ("" = a Qwen 3.6 if installed). This computer only. */
   aiUrl = $state(readPref(AI_URL_KEY, DEFAULT_AI_URL));
   aiModel = $state(readPref(AI_MODEL_KEY, ""));
+  /** Ollama, or Claude (Anthropic); and the Claude model. This computer only. */
+  aiProvider = $state<AiProvider>(readPref(AI_PROVIDER_KEY, "ollama") === "claude" ? "claude" : "ollama");
+  aiClaudeModel = $state(readPref(AI_CLAUDE_MODEL_KEY, DEFAULT_CLAUDE_MODEL));
   /** The latest review's findings for each scene, shown with the script check. */
   aiFindings = $state<Record<string, AiFinding[]>>({});
   /** The review under way or just finished, for the bar above the script. */
-  aiReview = $state<{ scene: string; status: "busy" | "done" | "failed"; message: string } | null>(null);
+  aiReview = $state<{ scene: string; status: "busy" | "done" | "failed" | "consent"; message: string } | null>(null);
 
   setAi(url: string, model: string) {
     this.aiUrl = url.trim() || DEFAULT_AI_URL;
     this.aiModel = model.trim();
     writePref(AI_URL_KEY, this.aiUrl);
     writePref(AI_MODEL_KEY, this.aiModel);
+  }
+
+  setAiProvider(provider: AiProvider, claudeModel = this.aiClaudeModel) {
+    this.aiProvider = provider;
+    this.aiClaudeModel = claudeModel || DEFAULT_CLAUDE_MODEL;
+    writePref(AI_PROVIDER_KEY, provider);
+    writePref(AI_CLAUDE_MODEL_KEY, this.aiClaudeModel);
+  }
+
+  /** Let (or stop) the AI review sending this project's text to Anthropic. */
+  async allowCloud(on: boolean) {
+    await this.setOption("ai", on ? { cloud: true } : null);
   }
 
   /**
@@ -683,20 +712,30 @@ class AppState {
   async reviewScene(body: string) {
     const scene = this.scene?.id;
     if (!scene || !this.project || this.aiReview?.status === "busy") return;
-    const model = this.aiModel;
-    this.aiReview = { scene, status: "busy", message: `Reviewing with ${model || "the local model"}… on a laptop this can take a few minutes.` };
-    const r = await ai.review({ root: this.project.root, scene, body, url: this.aiUrl, model });
+    const provider = this.aiProvider;
+    const model = provider === "claude" ? this.aiClaudeModel : this.aiModel;
+    this.aiReview = {
+      scene,
+      status: "busy",
+      message:
+        provider === "claude"
+          ? `Reviewing with ${claudeName(model)}…`
+          : `Reviewing with ${model || "the local model"}… on a laptop this can take a few minutes.`,
+    };
+    const r = await ai.review({ root: this.project.root, scene, body, provider, url: this.aiUrl, model });
     if (this.aiReview?.scene !== scene) return; // the project closed meanwhile
     if (r.ok) {
       this.aiFindings = { ...this.aiFindings, [scene]: r.findings };
       const n = r.findings.length;
+      const who = provider === "claude" ? claudeName(r.model ?? model) : r.model;
+      const cost = r.cost_usd != null ? ` Cost: ${dollars(r.cost_usd)}.` : "";
       this.aiReview = {
         scene,
         status: "done",
-        message: `${r.model}: ${n === 0 ? "nothing found" : n === 1 ? "1 note" : `${n} notes`}, marked “AI” in the script.`,
+        message: `${who}: ${n === 0 ? "nothing found" : n === 1 ? "1 note" : `${n} notes`}, marked “AI” in the script.${cost}`,
       };
     } else {
-      this.aiReview = { scene, status: "failed", message: r.reason };
+      this.aiReview = { scene, status: "needs_consent" in r && r.needs_consent ? "consent" : "failed", message: r.reason };
     }
     this.checksVersion++;
   }
@@ -726,7 +765,7 @@ class AppState {
   }
 
   /** Set a project option in project.yaml (shared when co-writing). */
-  async setOption(name: "auto_contd" | "shooting_script" | "layout", value: unknown) {
+  async setOption(name: "auto_contd" | "shooting_script" | "layout" | "ai", value: unknown) {
     await this.guard(async () => {
       if (this.collab) {
         const text = this.collab.fileText("project.yaml") ?? "";

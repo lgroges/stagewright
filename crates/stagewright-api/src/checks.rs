@@ -220,7 +220,7 @@ pub fn set_check(root: &Path, code: &str, on: bool) -> ApiResult {
 // ---------------------------------------------------------------- project options
 
 /// Options the app may set in project.yaml.
-const OPTIONS: &[&str] = &["auto_contd", "shooting_script", "layout", "dialect"];
+const OPTIONS: &[&str] = &["auto_contd", "shooting_script", "layout", "dialect", "ai"];
 
 /// project.yaml with option `name` set (`null` removes it, back to the default).
 pub fn yaml_set_option(text: &str, name: &str, value: &Value) -> Result<String, ApiError> {

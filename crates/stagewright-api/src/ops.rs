@@ -261,6 +261,7 @@ pub fn project_view(root: &Path) -> ApiResult {
         "format_label": p.meta.format.label(),
         "auto_contd": p.meta.auto_contd(),
         "shooting_script": p.meta.shooting_script,
+        "ai_cloud": p.meta.ai.cloud,
         "layout": p.meta.layout.for_format(p.meta.format),
         "layouts": stagewright_core::layout::Layout::options(p.meta.format)
             .into_iter()

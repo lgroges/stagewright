@@ -25,7 +25,7 @@ the summary below. Try, in order:
    fetch it then, or carry on with the summary below if he'd rather not.
 
 The page starts with a "Format version" line. This skill was written for **format version
-5**. If the live version is higher, use the live page, and tell Liam in one line that
+6**. If the live version is higher, use the live page, and tell Liam in one line that
 this skill can be refreshed (he can ask Claude in the Stagewright repo to propose the
 update). If the page can't be reached, use the summary below and say it may be out
 of date.
@@ -53,14 +53,15 @@ Read `comments.yaml` too: each comment is pinned to a passage of one scene (by
 `scene` id and `quote`). Unresolved comments are open questions Liam or a co-writer
 raised; mention ones that bear on what he asked.
 
-## 4. Summary of the format (version 5)
+## 4. Summary of the format (version 6)
 
 **project.yaml**: `title`, `subtitle`, `authors`, `contact`, `format` (`stage`,
 `film`, `tv-single`, `tv-multi`), `series` and `episodes: [{number, title}]`, `acts:
 [{number, title}]`, `draft`, `rating_fields`, `running_time` (`words_per_minute` 150,
 `seconds_per_lyric_line` 6, `minutes_per_page`), `auto_contd`, `shooting_script`,
 `layout` (`uk-stage`, `bbc-studio`), `dialect` (`british` by default, `american` …),
-`checks: {off: [...]}`.
+`checks: {off: [...]}`, `ai: {cloud: true}` (the app's AI review may send the scenes to
+Anthropic).
 
 **characters.yaml**: `- {id, cue, name, short, description, track}`. `cue` is the name
 above speeches; `name` the full name used at the character's introduction; `short`

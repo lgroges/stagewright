@@ -91,6 +91,23 @@ pub struct ProjectMeta {
     /// Script check settings, e.g. `checks: {off: [contd-mismatch]}`.
     #[serde(default)]
     pub checks: ChecksConfig,
+    /// AI settings, e.g. `ai: {cloud: true}`.
+    #[serde(default, skip_serializing_if = "AiConfig::is_default")]
+    pub ai: AiConfig,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub struct AiConfig {
+    /// The AI review may send this project's text to Anthropic (Claude).
+    /// Off unless the writer allows it: unpublished, perhaps co-written work.
+    #[serde(default)]
+    pub cloud: bool,
+}
+
+impl AiConfig {
+    fn is_default(&self) -> bool {
+        *self == AiConfig::default()
+    }
 }
 
 fn is_british(e: &crate::grammar::English) -> bool {

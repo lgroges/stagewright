@@ -4,6 +4,23 @@ Choices made about Stagewright and why, newest first. Each entry: what we chose,
 the reason, and what we didn't do. Ideas still open or turned down are in
 [ideas.md](ideas.md).
 
+## 2026-11-18 · Plan: a project context web, then an AI editor
+
+The plan is in [plans/context-and-ai.md](plans/context-and-ai.md). Settled so far:
+
+- **Claude (Sonnet 5.5) joins Ollama for the copy-edit**, with the API key in the
+  system's credential store and a per-project opt-in to sending text to Anthropic.
+  Opus 5.5 wasn't needed: Sonnet found every planted mistake.
+- **Characters and locations are extended, not replaced**: characters.yaml and
+  locations.yaml stay the index; an optional Markdown page holds the rest.
+- **Links have labels** ("scryer to", and the other way "employs"), stored once.
+- **Beat sheets start from a template** (Save the Cat, three acts, Story Circle,
+  Freytag, blank), never enforced. Each beat can have a target position, shown against
+  where it actually lands.
+- **Research is Liam's own notes for now**, with sources written in; no files.
+- **Notes are edited in Stagewright**, with `[[` links (Obsidian's syntax).
+- **The editorial read leaves comments**, not fixes.
+
 ## 2026-11-05 · An AI review, on a local model
 
 A first AI feature on top of the rule-based check: **Review scene** asks a model on

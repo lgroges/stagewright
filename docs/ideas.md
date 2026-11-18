@@ -15,7 +15,19 @@ it's settled, either built or turned down for good.
   stronger model than runs locally; left for later.
 - **A period setting for the AI review** (when and where the script is set), if the
   model flags deliberate period wording. For now it's told the title and to judge from
-  the scene.
+  the scene. The context web (plans/context-and-ai.md) may cover it: locations get a
+  `period`, and research notes can say when the story is set.
+- **An AI trained on editorial material**, for better editorial advice: craft books,
+  script reports, good scripts, Liam's own notes on what he likes. Raised by Liam on
+  2026-11-18. Claude can't be fine-tuned by us, so in practice this means a reference
+  library the editorial read draws on (the relevant passages put in its context,
+  cached), not training. Copyright: summaries and principles in our own words, not
+  copied text, unless the material is Liam's or licensed.
+- **AI storyboards and scenes**: generated storyboard frames for a scene, and drafted
+  scenes (from a beat or a synopsis, say). Raised by Liam on 2026-11-18. Storyboards
+  need an image model, which Claude isn't (a local one through ComfyUI, or a hosted
+  image API). Drafting scenes is a change of stance: so far the AI comments on the
+  writing and doesn't write it (since the first plan, 2026-11-01).
 - **Hosting the co-writing relay.** It runs locally for now; where it should live
   for real is undecided.
 - **Suggested edits**, like Google Docs' suggesting mode: proposed insertions and

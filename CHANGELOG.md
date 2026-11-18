@@ -7,6 +7,8 @@ change, the cursor, is listed under 0.3.0.)
 
 ## Unreleased
 
+## 0.9.0 (2026-11-18)
+
 - **AI review with Claude**: under Production → Checks…, the review can use Claude
   (Anthropic) instead of Ollama: Sonnet 5.5 by default (about 1p a scene, a few
   seconds), or Opus 5.5 or Haiku 5.5. Each suggestion comes with Claude's reason, and

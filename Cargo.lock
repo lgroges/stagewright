@@ -6263,7 +6263,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "stagewright"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "clap",
  "futures-util",
@@ -6278,7 +6278,7 @@ dependencies = [
 
 [[package]]
 name = "stagewright-api"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "base64 0.23.1",
  "keyring",
@@ -6292,7 +6292,7 @@ dependencies = [
 
 [[package]]
 name = "stagewright-app"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "serde_json",
  "stagewright-api",
@@ -6305,7 +6305,7 @@ dependencies = [
 
 [[package]]
 name = "stagewright-core"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "harper-core",
  "serde",

@@ -10,7 +10,8 @@
 //! (`ai: {cloud: true}`). The API key is kept in the system's credential store
 //! (Windows, macOS), or read from ANTHROPIC_API_KEY.
 
-use super::{header, numbered, place, Finding, Paragraph};
+use super::text::{paragraph, place, Paragraph};
+use super::{header, numbered, Finding};
 use crate::{ApiError, ApiResult};
 use serde_json::{json, Value};
 use stagewright_core::project::ProjectMeta;
@@ -18,14 +19,16 @@ use std::time::Duration;
 
 pub const DEFAULT_MODEL: &str = "claude-sonnet-5-5";
 
-/// The models offered: id, name, and US dollars per million tokens in and out.
-pub const MODELS: &[(&str, &str, f64, f64)] = &[
-    ("claude-sonnet-5-5", "Sonnet 5.5", 2.0, 10.0),
-    ("claude-opus-5-5", "Opus 5.5", 4.0, 20.0),
-    ("claude-haiku-5-5", "Haiku 5.5", 0.10, 0.50),
+/// The models' prices: US dollars per million tokens in and out. (The app
+/// offers these models.)
+pub const PRICES: &[(&str, f64, f64)] = &[
+    ("claude-sonnet-5-5", 2.0, 10.0),
+    ("claude-opus-5-5", 4.0, 20.0),
+    ("claude-haiku-5-5", 0.10, 0.50),
 ];
 
 const API_URL: &str = "https://api.anthropic.com";
+const API_VERSION: &str = "2023-06-01";
 const KEY_SERVICE: &str = "Stagewright";
 const KEY_USER: &str = "anthropic-api-key";
 
@@ -127,36 +130,54 @@ fn failure(status: u16, body: &Value) -> String {
     }
 }
 
+impl Claude {
+    /// One API call (a POST of `send`, or a GET): the reply, or why there isn't
+    /// one in words for the writer.
+    fn call(&self, path: &str, send: Option<&Value>) -> Result<Value, String> {
+        let key = self
+            .key
+            .as_deref()
+            .ok_or("Add your Anthropic API key under Production → Checks… first.")?;
+        let url = format!("{}{path}", self.url);
+        let res = match send {
+            Some(body) => agent(Duration::from_secs(180))
+                .post(url)
+                .header("x-api-key", key)
+                .header("anthropic-version", API_VERSION)
+                .send_json(body),
+            None => agent(Duration::from_secs(20))
+                .get(url)
+                .header("x-api-key", key)
+                .header("anthropic-version", API_VERSION)
+                .call(),
+        };
+        let mut res = res.map_err(|e| format!("Couldn't reach Anthropic ({e}). Are you online?"))?;
+        let code = res.status().as_u16();
+        let reply: Value = res
+            .body_mut()
+            .read_json()
+            .map_err(|e| format!("Anthropic gave an unexpected reply ({e})."))?;
+        if code == 200 {
+            Ok(reply)
+        } else {
+            Err(failure(code, &reply))
+        }
+    }
+}
+
 /// Whether there's a key and the API accepts it.
 pub fn status(c: &Claude) -> ApiResult {
-    let models: Vec<Value> = MODELS
-        .iter()
-        .map(|(id, name, ..)| json!({ "id": id, "name": name }))
-        .collect();
-    let Some(key) = c.key.as_deref() else {
-        return Ok(json!({ "ok": false, "has_key": false, "models": models, "reason": "No API key yet." }));
-    };
-    let res = agent(Duration::from_secs(20))
-        .get(format!("{}/v1/models", c.url))
-        .header("x-api-key", key)
-        .header("anthropic-version", "2023-06-01")
-        .call();
-    let mut res = match res {
-        Ok(r) => r,
-        Err(e) => {
-            let reason = format!("Couldn't reach Anthropic ({e}).");
-            return Ok(json!({ "ok": false, "has_key": true, "stored": c.stored, "models": models, "reason": reason }));
-        }
-    };
-    let code = res.status().as_u16();
-    let body: Value = res.body_mut().read_json().unwrap_or(Value::Null);
-    if code == 200 {
-        Ok(json!({ "ok": true, "has_key": true, "stored": c.stored, "models": models }))
+    let mut v = json!({ "ok": true, "has_key": c.key.is_some(), "stored": c.stored });
+    let checked = if c.key.is_some() {
+        c.call("/v1/models", None).map(drop)
     } else {
-        Ok(
-            json!({ "ok": false, "has_key": true, "stored": c.stored, "models": models, "reason": failure(code, &body) }),
-        )
+        Err("No API key yet.".into())
+    };
+    if let Err(reason) = checked {
+        v["ok"] = json!(false);
+        v["reason"] = json!(reason);
     }
+    Ok(v)
 }
 
 /// The instructions, word for word as tested: small changes change the results.
@@ -204,7 +225,7 @@ fn answer(reply: &Value) -> Option<Value> {
 
 /// What a reply cost, in US dollars, from its token counts.
 pub fn cost(model: &str, reply: &Value) -> Option<f64> {
-    let (.., inp, out) = MODELS.iter().find(|(id, ..)| *id == model)?;
+    let (_, inp, out) = PRICES.iter().find(|(id, ..)| *id == model)?;
     let u = &reply["usage"];
     let sent = u["input_tokens"].as_f64()?
         + u["cache_creation_input_tokens"].as_f64().unwrap_or(0.0) * 1.25
@@ -215,48 +236,35 @@ pub fn cost(model: &str, reply: &Value) -> Option<f64> {
 /// Put the model's reason after each finding's change: the change in the same
 /// paragraph whose words match, or the paragraph's only change.
 pub fn add_reasons(findings: &mut [Finding], paras: &[Paragraph], raw: &Value) {
-    let norm = |s: &str| {
+    // Compared without spaces or curly quotes: the diff joins words with spaces
+    // ("He ’s"), the model writes "He's".
+    let squash = |s: &str| {
         s.replace(['\u{2019}', '\u{2018}'], "'")
             .replace(['\u{201c}', '\u{201d}'], "\"")
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
+            .replace(char::is_whitespace, "")
     };
     for f in findings.iter_mut() {
-        let Some((was, now, text)) = &f.change else { continue };
-        let Some(p) = raw["paragraphs"].as_array().into_iter().flatten().find(|p| {
-            p["n"]
-                .as_u64()
-                .and_then(|n| paras.get((n as usize).checked_sub(1)?))
-                .is_some_and(|q| &q.text == text)
-        }) else {
-            continue;
-        };
-        let changes: Vec<&Value> = p["changes"].as_array().into_iter().flatten().collect();
-        // The diff joins tokens with spaces ("He ’s"); compare without them.
-        let squash = |s: &str| norm(s).replace(' ', "");
-        let found = changes
-            .iter()
-            .find(|c| {
-                squash(c["from"].as_str().unwrap_or("")).contains(&squash(was))
-                    && squash(c["to"].as_str().unwrap_or("")).contains(&squash(now))
-            })
-            .or_else(|| (changes.len() == 1).then(|| &changes[0]));
-        let Some(why) = found
-            .and_then(|c| c["why"].as_str())
-            .map(str::trim)
-            .filter(|w| !w.is_empty())
+        let Some(c) = &f.change else { continue };
+        let Some(p) = raw["paragraphs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|p| paragraph(paras, &p["n"]).is_some_and(|(i, _)| i == c.paragraph))
         else {
             continue;
         };
-        let mut why = why.to_string();
-        if let Some(first) = why.chars().next() {
-            why.replace_range(..first.len_utf8(), &first.to_uppercase().to_string());
+        let changes: Vec<&Value> = p["changes"].as_array().into_iter().flatten().collect();
+        let (was, now) = (squash(&c.was), squash(&c.now));
+        let matching = changes.iter().find(|m| {
+            squash(m["from"].as_str().unwrap_or("")).contains(&was)
+                && squash(m["to"].as_str().unwrap_or("")).contains(&now)
+        });
+        if let Some(why) = matching
+            .or_else(|| changes.first().filter(|_| changes.len() == 1))
+            .and_then(|m| m["why"].as_str())
+        {
+            f.add_reason(why);
         }
-        if !why.ends_with(['.', '!', '?']) {
-            why.push('.');
-        }
-        f.message = format!("{} {why}", f.message);
     }
 }
 
@@ -268,24 +276,7 @@ pub fn review(
     paras: &[Paragraph],
     request: &Value,
 ) -> Result<(Vec<Finding>, Option<f64>), String> {
-    let Some(key) = c.key.as_deref() else {
-        return Err("Add your Anthropic API key under Production → Checks… first.".into());
-    };
-    let url = format!("{}/v1/messages", c.url);
-    let mut res = agent(Duration::from_secs(180))
-        .post(url)
-        .header("x-api-key", key)
-        .header("anthropic-version", "2023-06-01")
-        .send_json(request)
-        .map_err(|e| format!("Couldn't reach Anthropic ({e}). Are you online?"))?;
-    let code = res.status().as_u16();
-    let reply: Value = res
-        .body_mut()
-        .read_json()
-        .map_err(|e| format!("Anthropic gave an unexpected reply ({e})."))?;
-    if code != 200 {
-        return Err(failure(code, &reply));
-    }
+    let reply = c.call("/v1/messages", Some(request))?;
     if reply["stop_reason"] == "max_tokens" {
         return Err("The scene is too long for one review; try splitting it.".into());
     }
@@ -293,4 +284,132 @@ pub fn review(
     let mut findings = place(body, paras, &raw);
     add_reasons(&mut findings, paras, &raw);
     Ok((findings, cost(model, &reply)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ai::review_with;
+    use crate::ai::tests::{fake, project};
+
+    fn claude_at(url: &str, key: Option<&str>) -> Claude {
+        Claude {
+            url: url.into(),
+            key: key.map(str::to_string),
+            stored: false,
+        }
+    }
+
+    #[test]
+    fn claude_needs_the_projects_permission_and_a_key() {
+        let d = project();
+        let args = json!({ "root": d.path(), "scene": "sc-1", "body": "Rain falls.", "provider": "claude" });
+        let v = review_with(&args, || panic!("not asked before permission")).unwrap();
+        assert_eq!(
+            (v["ok"].as_bool(), v["needs_consent"].as_bool()),
+            (Some(false), Some(true))
+        );
+        std::fs::write(
+            d.path().join("project.yaml"),
+            "title: T\nformat: film\nai: {cloud: true}\n",
+        )
+        .unwrap();
+        let v = review_with(&args, || claude_at("http://127.0.0.1:9", None)).unwrap();
+        assert!(v["reason"].as_str().unwrap().contains("API key"), "{v}");
+        // The option round-trips in project.yaml.
+        let y = crate::checks::yaml_set_option("title: T\n", "ai", &json!({ "cloud": true })).unwrap();
+        let meta: ProjectMeta = serde_yaml::from_str(&y).unwrap();
+        assert!(meta.ai.cloud);
+    }
+
+    #[test]
+    fn a_claude_review_end_to_end() {
+        let d = project();
+        std::fs::write(
+            d.path().join("project.yaml"),
+            "title: T\nformat: stage\nai: {cloud: true}\n",
+        )
+        .unwrap();
+        let body = "The quay.\n\nHETTIE\nHes coming on the coach.\n\nTOBIAS straightens the sign, which fall down.";
+        let answer = json!({ "paragraphs": [
+            { "n": 2, "text": "He\u{2019}s coming on the coach.",
+              "changes": [{ "from": "Hes", "to": "He\u{2019}s", "why": "missing apostrophe" }] },
+            { "n": 3, "text": "TOBIAS straightens the sign, which falls down.",
+              "changes": [{ "from": "which fall", "to": "which falls", "why": "the verb agrees with 'sign'" }] }
+        ]});
+        let reply = json!({
+            "content": [{ "type": "thinking", "thinking": "" }, { "type": "text", "text": format!("```json\n{answer}\n```") }],
+            "stop_reason": "end_turn",
+            "usage": { "input_tokens": 1000, "output_tokens": 500 }
+        });
+        let (url, got) = fake(vec![(200, reply.to_string())]);
+        let args = json!({ "root": d.path(), "scene": "sc-1", "body": body, "provider": "claude" });
+        let v = review_with(&args, || claude_at(&url, Some("sk-ant-test"))).unwrap();
+        assert_eq!(v["ok"], true, "{v}");
+        assert_eq!(v["model"], "claude-sonnet-5-5");
+        assert!((v["cost_usd"].as_f64().unwrap() - 0.007).abs() < 1e-9);
+        let msgs: Vec<&str> = v["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["message"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            msgs,
+            vec![
+                "\u{201c}Hes\u{201d} \u{2192} \u{201c}He\u{2019}s\u{201d}? Missing apostrophe.",
+                "\u{201c}fall\u{201d} \u{2192} \u{201c}falls\u{201d}? The verb agrees with 'sign'."
+            ]
+        );
+        let sent = got.recv().unwrap();
+        let (key, req) = sent.split_once('\t').unwrap();
+        assert_eq!(key, "sk-ant-test");
+        let req: Value = serde_json::from_str(req).unwrap();
+        assert!(req["system"]
+            .as_str()
+            .unwrap()
+            .starts_with("You are a careful copy editor for a stage play in British English."));
+        assert!(req["messages"][0]["content"].as_str().unwrap().ends_with("[1] The quay.\n\n[2] HETTIE: Hes coming on the coach.\n\n[3] TOBIAS straightens the sign, which fall down."));
+        // Again, unchanged: kept, not asked (nothing is listening any more).
+        let again = review_with(&args, || claude_at("http://127.0.0.1:9", Some("sk-ant-test"))).unwrap();
+        assert_eq!(again["cached"], true);
+    }
+
+    #[test]
+    fn claude_failures_come_back_as_reasons() {
+        let d = project();
+        std::fs::write(d.path().join("project.yaml"), "title: T\nai: {cloud: true}\n").unwrap();
+        let ask = |status: u16, body: Value| {
+            let (url, _g) = fake(vec![(status, body.to_string())]);
+            let args =
+                json!({ "root": d.path(), "scene": "sc-1", "body": format!("Rain {status}."), "provider": "claude" });
+            review_with(&args, || claude_at(&url, Some("sk-ant-x"))).unwrap()["reason"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        let err = |m: &str| json!({ "type": "error", "error": { "type": "x", "message": m } });
+        assert!(ask(401, err("invalid x-api-key")).contains("wasn't accepted"));
+        assert!(
+            ask(400, err("Your credit balance is too low to access the Anthropic API.")).contains("credit has run out")
+        );
+        assert!(ask(529, err("Overloaded")).contains("busy"));
+        assert!(ask(
+            200,
+            json!({ "content": [{ "type": "text", "text": "Sure! Here you go." }] })
+        )
+        .contains("expected form"));
+        // Status: no key; a key that works; one that doesn't.
+        assert_eq!(
+            status(&claude_at("http://127.0.0.1:9", None)).unwrap()["has_key"],
+            false
+        );
+        let (url, _g) = fake(vec![(200, json!({ "data": [] }).to_string())]);
+        assert_eq!(status(&claude_at(&url, Some("sk-ant-x"))).unwrap()["ok"], true);
+        let (url, _g) = fake(vec![(401, err("invalid x-api-key").to_string())]);
+        let v = status(&claude_at(&url, Some("sk-ant-x"))).unwrap();
+        assert!(v["reason"].as_str().unwrap().contains("wasn't accepted"));
+        // A key that isn't one.
+        assert!(set_key(&json!({ "key": "hello" })).is_err());
+    }
 }

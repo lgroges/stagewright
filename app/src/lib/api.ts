@@ -349,11 +349,18 @@ export type AiReview =
 /** Where the AI runs: Ollama on this computer, or Claude (Anthropic). */
 export type AiProvider = "ollama" | "claude";
 
-export type AiStatus =
-  | { ok: true; url?: string; models: string[] | { id: string; name: string }[]; has_key?: boolean; stored?: boolean }
-  | { ok: false; reason: string; has_key?: boolean; stored?: boolean; models?: { id: string; name: string }[] };
+/** Whether the AI is ready: Ollama's models, or whether a Claude key is there and works. */
+export interface AiStatus {
+  ok: boolean;
+  reason?: string;
+  /** Ollama: the installed models. */
+  models?: string[];
+  /** Claude: a key is set, and it's the saved one (not ANTHROPIC_API_KEY). */
+  has_key?: boolean;
+  stored?: boolean;
+}
 
-const aiFailed = (e: unknown) => ({ ok: false as const, reason: String((e as Error)?.message ?? e) });
+const aiFailed = (e: unknown): { ok: false; reason: string } => ({ ok: false, reason: String((e as Error)?.message ?? e) });
 
 /**
  * The AI review. These don't queue behind saves (a review can take minutes),
@@ -361,9 +368,9 @@ const aiFailed = (e: unknown) => ({ ok: false as const, reason: String((e as Err
  */
 export const ai = {
   status: (provider: AiProvider, url: string) =>
-    (transport("ai_status", { provider, url }) as Promise<AiStatus>).catch(aiFailed),
+    (transport("ai_status", { provider, url }) as Promise<AiStatus>).catch((e): AiStatus => aiFailed(e)),
   review: (args: { root: string; scene: string; body: string; provider: AiProvider; url: string; model: string }) =>
-    (transport("ai_review", args) as Promise<AiReview>).catch(aiFailed),
+    (transport("ai_review", args) as Promise<AiReview>).catch((e): AiReview => aiFailed(e)),
   /** Save the Claude API key in the system's credential store ("" removes it). */
   setKey: (key: string) => transport("ai_key_set", { key }) as Promise<{ ok: true; has_key: boolean }>,
 };

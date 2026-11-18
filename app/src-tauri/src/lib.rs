@@ -3,7 +3,7 @@
 //! and self-update.
 
 use serde_json::Value;
-use stagewright_api::{dispatch, dispatch_free, ApiError, Workspace};
+use stagewright_api::{dispatch, free_command, ApiError, Workspace};
 use std::sync::Mutex;
 
 struct AppState(Mutex<Workspace>);
@@ -12,8 +12,8 @@ struct AppState(Mutex<Workspace>);
 #[tauri::command(async)]
 fn api(state: tauri::State<'_, AppState>, cmd: String, args: Value) -> Result<Value, ApiError> {
     // The AI review can take minutes: it doesn't touch the workspace, so it doesn't wait for it.
-    if let Some(done) = dispatch_free(&cmd, &args) {
-        return done;
+    if let Some(run) = free_command(&cmd) {
+        return run(&args);
     }
     let mut ws = state
         .0

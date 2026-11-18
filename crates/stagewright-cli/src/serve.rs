@@ -1,7 +1,7 @@
 //! `stagewright serve`: the editor in a browser, backed by the same API the
 //! desktop app uses. Binds to 127.0.0.1 only.
 
-use stagewright_api::{ApiError, FREE_COMMANDS, Workspace, dispatch, dispatch_free};
+use stagewright_api::{ApiError, Workspace, dispatch, free_command};
 use std::path::{Component, Path, PathBuf};
 use tiny_http::{Header, Method, Response, Server};
 
@@ -109,13 +109,11 @@ pub fn run(root: Option<PathBuf>, port: u16, static_dir: Option<PathBuf>) -> Res
                 } else {
                     serde_json::from_str(&body).map_err(|e| ApiError::new("bad_json", e.to_string()))
                 };
-                if FREE_COMMANDS.contains(&cmd) {
+                if let Some(run) = free_command(cmd) {
                     // Long-running and project-free (the AI review): answer from its own
                     // thread so the editor keeps saving and checking meanwhile.
-                    let cmd = cmd.to_string();
                     std::thread::spawn(move || {
-                        let done = args.and_then(|a| dispatch_free(&cmd, &a).expect("a free command"));
-                        let _ = req.respond(json_response(done));
+                        let _ = req.respond(json_response(args.and_then(|a| run(&a))));
                     });
                     continue;
                 }

@@ -6,83 +6,56 @@
 //   cargo build -p stagewright && npm run build && node e2e/ai.cjs
 
 const { chromium } = require("playwright");
-const { repo, bin, check, fail, finish, copyDir, until, serverUp, pickPort } = require("./lib.cjs");
+const { repo, bin, check, fail, finish, copyDir, until, serverUp, pickPort, fakeApi } = require("./lib.cjs");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
-const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 
 const shots = process.env.SHOTS_DIR;
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** What a stand-in was sent at `url`. */
+const chats = (fake, url) => fake.asked.filter((a) => a.url === url).map((a) => a.body);
+
 /** A stand-in Ollama: one model, and a review that takes `delay` ms. */
 function fakeOllama(port, delay) {
-  const asked = [];
-  const server = http.createServer((req, res) => {
-    let body = "";
-    req.on("data", (c) => (body += c));
-    req.on("end", () => {
-      const reply = (v) => {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(v));
-      };
-      if (req.url === "/api/tags") return reply({ models: [{ name: "qwen3.6:27b" }] });
-      if (req.url === "/api/chat") {
-        asked.push(JSON.parse(body));
-        const req = JSON.parse(body);
-        // Asked why: a reason for each change.
-        if (/explain/.test(req.messages[0].content)) {
-          const reasons = [...req.messages[1].content.matchAll(/^\[(\d+)\] In:/gm)].map(([, n]) => ({ n: Number(n), why: "A noun like this needs its article" }));
-          return reply({ message: { role: "assistant", content: JSON.stringify({ reasons }) } });
-        }
-        // Each paragraph back as sent, but one corrected, and one that isn't in the scene.
-        const paragraphs = [...req.messages[1].content.matchAll(/^\[(\d+)\] (.*)$/gm)].map(([, n, text]) => ({
-          n: Number(n),
-          text: text.replace("stamps papers without", "stamps the papers without"),
-        }));
-        paragraphs.push({ n: 999, text: "Words the model made up." });
-        const content = JSON.stringify({ paragraphs });
-        return setTimeout(() => reply({ message: { role: "assistant", content } }), delay);
-      }
-      res.writeHead(404);
-      res.end();
-    });
+  return fakeApi(port, async (req, sent) => {
+    if (req.url === "/api/tags") return [200, { models: [{ name: "qwen3.6:27b" }] }];
+    if (req.url !== "/api/chat") return;
+    const reply = (v) => [200, { message: { role: "assistant", content: JSON.stringify(v) } }];
+    // Asked why: a reason for each change.
+    if (/explain/.test(sent.messages[0].content)) {
+      const reasons = [...sent.messages[1].content.matchAll(/^\[(\d+)\] In:/gm)].map(([, n]) => ({ n: Number(n), why: "A noun like this needs its article" }));
+      return reply({ reasons });
+    }
+    // Each paragraph back as sent, but one corrected, and one that isn't in the scene.
+    const paragraphs = [...sent.messages[1].content.matchAll(/^\[(\d+)\] (.*)$/gm)].map(([, n, text]) => ({
+      n: Number(n),
+      text: text.replace("stamps papers without", "stamps the papers without"),
+    }));
+    paragraphs.push({ n: 999, text: "Words the model made up." });
+    await sleep(delay);
+    return reply({ paragraphs });
   });
-  server.listen(port, "127.0.0.1");
-  return { server, asked };
 }
 
 /** A stand-in Claude API: a key that works, and one correction with its reason. */
 function fakeClaude(port) {
-  const asked = [];
-  const server = http.createServer((req, res) => {
-    let body = "";
-    req.on("data", (c) => (body += c));
-    req.on("end", () => {
-      const reply = (status, v) => {
-        res.writeHead(status, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(v));
-      };
-      if (req.headers["x-api-key"] !== "sk-ant-e2e") return reply(401, { type: "error", error: { message: "invalid x-api-key" } });
-      if (req.url === "/v1/models") return reply(200, { data: [] });
-      if (req.url === "/v1/messages") {
-        const sent = JSON.parse(body);
-        asked.push(sent);
-        const paragraphs = [...sent.messages[0].content.matchAll(/^\[(\d+)\] (.*)$/gm)]
-          .filter(([, , text]) => text.includes("stamps papers without"))
-          .map(([, n, text]) => ({
-            n: Number(n),
-            text: text.replace("stamps papers without", "stamps the papers without"),
-            changes: [{ from: "stamps papers", to: "stamps the papers", why: "papers needs 'the' here" }],
-          }));
-        const text = "```json\n" + JSON.stringify({ paragraphs }) + "\n```";
-        return reply(200, { content: [{ type: "text", text }], stop_reason: "end_turn", usage: { input_tokens: 2000, output_tokens: 300 } });
-      }
-      reply(404, {});
-    });
+  return fakeApi(port, (req, sent) => {
+    if (req.headers["x-api-key"] !== "sk-ant-e2e") return [401, { type: "error", error: { message: "invalid x-api-key" } }];
+    if (req.url === "/v1/models") return [200, { data: [] }];
+    if (req.url !== "/v1/messages") return;
+    const paragraphs = [...sent.messages[0].content.matchAll(/^\[(\d+)\] (.*)$/gm)]
+      .filter(([, , text]) => text.includes("stamps papers without"))
+      .map(([, n, text]) => ({
+        n: Number(n),
+        text: text.replace("stamps papers without", "stamps the papers without"),
+        changes: [{ from: "stamps papers", to: "stamps the papers", why: "papers needs 'the' here" }],
+      }));
+    const text = "```json\n" + JSON.stringify({ paragraphs }) + "\n```";
+    return [200, { content: [{ type: "text", text }], stop_reason: "end_turn", usage: { input_tokens: 2000, output_tokens: 300 } }];
   });
-  server.listen(port, "127.0.0.1");
-  return { server, asked };
 }
 
 (async () => {
@@ -121,7 +94,7 @@ function fakeClaude(port) {
     check("the scene saves while the review runs", true);
     await page.waitForFunction(() => /1 note/.test(document.querySelector('[data-testid="ai-status"]')?.textContent ?? ""), null, { timeout: 10000 });
     check("the review reports its notes, leaving out paragraphs that aren't in the scene", /qwen3\.6:27b: 1 note/.test(await status()), await status());
-    const asked = ollama.asked[0];
+    const asked = chats(ollama, "/api/chat")[0];
     check("it asked for JSON from the model, without thinking", asked?.model === "qwen3.6:27b" && asked.think === false && asked.format?.type === "object" && asked.options.num_ctx >= 8192);
     check("and gave it the cast", asked.messages[1].content.includes("MORDECAI"));
 
@@ -150,9 +123,10 @@ function fakeClaude(port) {
       await page.waitForFunction(() => /1 note/.test(document.querySelector('[data-testid="ai-status"]')?.textContent ?? ""), null, { timeout: 10000 });
     };
     await review();
-    const before = ollama.asked.length;
+    const before = chats(ollama, "/api/chat").length;
     await review();
-    check("a review of unchanged text is kept, not asked again", ollama.asked.length === before, `${ollama.asked.length} vs ${before}`);
+    const after = chats(ollama, "/api/chat").length;
+    check("a review of unchanged text is kept, not asked again", after === before, `${after} vs ${before}`);
     check("cached reviews are kept out of git", fs.existsSync(path.join(project, ".stagewright/.gitignore")));
 
     // 4. Ollama goes away: the review says so; the rule checks carry on
@@ -182,13 +156,13 @@ function fakeClaude(port) {
     await page.click('nav[aria-label="Views"] >> text=Script');
     await page.click('[data-testid="ai-review"]');
     await page.waitForSelector('[data-testid="ai-allow"]');
-    check("Review asks before sending a scene to Anthropic", claude.asked.length === 0 && /Allow it for this project/.test(await status()));
+    check("Review asks before sending a scene to Anthropic", chats(claude, "/v1/messages").length === 0 && /Allow it for this project/.test(await status()));
     await page.click('[data-testid="ai-allow"]');
     await until(() => /^ai: \{"?cloud"?: ?true\}/m.test(fs.readFileSync(path.join(project, "project.yaml"), "utf8")), 3000, "allowed");
     check("allowing it is saved in project.yaml", true);
     await page.waitForFunction(() => /Sonnet 5\.5: 1 note/.test(document.querySelector('[data-testid="ai-status"]')?.textContent ?? ""), null, { timeout: 8000 });
     check("then the review runs with Claude, with its cost", /Cost: under \$0\.01/.test(await status()), await status());
-    const sent = claude.asked[0];
+    const sent = chats(claude, "/v1/messages")[0];
     check("asking Sonnet 5.5 for the whole scene", sent.model === "claude-sonnet-5-5" && /\[1\] /.test(sent.messages[0].content));
     await page.click('[data-testid="issue-count"]');
     await page.waitForSelector(".cm-panel-lint");

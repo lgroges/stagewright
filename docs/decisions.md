@@ -4,6 +4,26 @@ Choices made about Stagewright and why, newest first. Each entry: what we chose,
 the reason, and what we didn't do. Ideas still open or turned down are in
 [ideas.md](ideas.md).
 
+## 2026-11-18 · Tidying the AI review
+
+- **The Rust AI module is split by job**: `ai/mod.rs` (the review: which provider, the
+  kept reviews, findings as script-check issues), `ai/text.rs` (paragraphs and the
+  word diff), `ai/ollama.rs` and `ai/claude.rs`. Each file's tests live with it.
+- **A review is a `Provider`** (Ollama or Claude) that makes the requests and sends
+  them; the steps around it (the project's settings, kept reviews, the answer) are
+  written once. An early answer for the writer (`{ok: false, reason}`) and a real
+  error are one `Stop` type, so the flow uses `?` throughout.
+- **A change is a named `Change`** (`was`, `now`, the paragraph's index), not a tuple
+  carrying a copy of the paragraph; one `Finding::add_reason` writes the reason for
+  both providers. Claude's two requests share one `call`.
+- **One `free_command` lookup** decides which commands run off the workspace lock,
+  for the desktop app and `serve`, instead of a list and a second match.
+- **In the app**, the AI state is its own module (`app.ai`, `lib/ai.svelte.ts`) and its
+  settings its own component (`AiSettings.svelte`); localStorage helpers moved to
+  `lib/prefs.ts`. The end-to-end stand-ins share a `fakeApi` helper.
+- Behaviour is unchanged, except that Ollama's cap on an answer's length now counts
+  the whole message rather than only the scene's text (a little higher).
+
 ## 2026-11-18 · The copy-edit with Claude (built)
 
 - **One request a scene**, the prompt as tested: the whole scene numbered, an answer

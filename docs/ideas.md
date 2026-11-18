@@ -47,7 +47,8 @@ it's settled, either built or turned down for good.
   the clean-up sweep, 2026-11-03.
 - **Split `crates/stagewright-api/src/ops.rs` (about 1,100 lines) and the app's
   `state.svelte.ts` (about 800)** into modules by area: scenes, acts and episodes,
-  project files, co-writing, export; and comments, cast, co-writing in the app.
+  project files, co-writing, export; and comments, cast, co-writing in the app. The
+  AI review was split out on 2026-11-18 (`ai/`, `lib/ai.svelte.ts`); the rest is open.
 - **List Playwright as a dev dependency of the app** so the end-to-end suites declare
   what they need (CI installs it separately today).
 

@@ -153,9 +153,9 @@
     // In script order; detached ones last.
     return list.sort((a, b) => (a.at ?? Infinity) - (b.at ?? Infinity));
   });
-  const reviewing = $derived(app.aiReview?.status === "busy");
+  const reviewing = $derived(app.ai.review?.status === "busy");
   // A review under way (of any scene), or the result of this scene's.
-  const review = $derived(app.aiReview && (reviewing || app.aiReview.scene === app.scene?.id) ? app.aiReview : null);
+  const review = $derived(app.ai.review && (reviewing || app.ai.review.scene === app.scene?.id) ? app.ai.review : null);
   const openCount = $derived(sceneComments.filter((c) => !c.comment.resolved).length);
 
   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -213,10 +213,10 @@
         check: {
           check: async (body) => {
             const sc = app.scene;
-            return sc ? (await api.checkScene(sc.id, body, app.aiFindings[sc.id] ?? [])).issues : null;
+            return sc ? (await api.checkScene(sc.id, body, app.ai.findings[sc.id] ?? [])).issues : null;
           },
           off: (code) => {
-            if (code === "ai-grammar" && app.scene) app.clearAi(app.scene.id);
+            if (code === "ai-grammar" && app.scene) app.ai.clear(app.scene.id);
             void app.setCheck(code, false);
           },
         },
@@ -448,16 +448,16 @@
           class="ghost"
           data-testid="ai-allow"
           onclick={async () => {
-            await app.allowCloud(true);
-            if (view) void app.reviewScene(view.state.doc.toString());
+            await app.ai.allowCloud(true);
+            if (view) void app.ai.reviewScene(view.state.doc.toString());
           }}>Allow and review</button
         >
       {/if}
       {#if review.status !== "busy"}
-        {#if app.scene && app.aiFindings[app.scene.id]?.length}
-          <button class="ghost" onclick={() => app.scene && app.clearAi(app.scene.id)}>Clear</button>
+        {#if app.scene && app.ai.findings[app.scene.id]?.length}
+          <button class="ghost" onclick={() => app.scene && app.ai.clear(app.scene.id)}>Clear</button>
         {/if}
-        <button class="ghost" aria-label="Close" onclick={() => (app.aiReview = null)}>✕</button>
+        <button class="ghost" aria-label="Close" onclick={() => (app.ai.review = null)}>✕</button>
       {/if}
     </div>
   {/if}
@@ -506,7 +506,7 @@
     {/if}
     <button
       class="ghost review"
-      onclick={() => view && app.reviewScene(view.state.doc.toString())}
+      onclick={() => view && app.ai.reviewScene(view.state.doc.toString())}
       disabled={reviewing || !app.scene}
       title="Ask the AI on this computer (Ollama) for grammar and wrong words the checks miss"
       data-testid="ai-review"><span class="ai-tag">AI</span> {reviewing ? "Reviewing…" : "Review scene"}</button

@@ -50,16 +50,14 @@ impl std::error::Error for ApiError {}
 
 pub type ApiResult = Result<Value, ApiError>;
 
-/// Commands that need no open project and may take a long time (the AI review):
-/// run them without holding the workspace, so saving and checking go on meanwhile.
-pub const FREE_COMMANDS: &[&str] = &["ai_status", "ai_review", "ai_key_set"];
-
-/// Run one of `FREE_COMMANDS`; `None` for any other.
-pub fn dispatch_free(cmd: &str, args: &Value) -> Option<ApiResult> {
+/// A command that needs no open project and may take a long time (the AI
+/// review), to run without holding the workspace so that saving and checking go
+/// on meanwhile. `None`: use `dispatch`.
+pub fn free_command(cmd: &str) -> Option<fn(&Value) -> ApiResult> {
     match cmd {
-        "ai_status" => Some(ai::status(args)),
-        "ai_review" => Some(ai::review(args)),
-        "ai_key_set" => Some(ai::claude::set_key(args)),
+        "ai_status" => Some(ai::status),
+        "ai_review" => Some(ai::review),
+        "ai_key_set" => Some(ai::claude::set_key),
         _ => None,
     }
 }

@@ -80,4 +80,31 @@ async function serverUp(port, ms = 10000) {
   );
 }
 
-module.exports = { repo, bin, check, fail, failures, finish, copyDir, until, serverUp, pickPort };
+/**
+ * A stand-in JSON API on `port`: `handle(req, body)` gets each request (its
+ * body parsed when it's JSON) and returns `[status, value]`, or a promise of one.
+ * Every request is kept in `asked` (url, headers, body).
+ */
+function fakeApi(port, handle) {
+  const asked = [];
+  const server = require("node:http").createServer((req, res) => {
+    let text = "";
+    req.on("data", (c) => (text += c));
+    req.on("end", async () => {
+      let body = text;
+      try {
+        body = text ? JSON.parse(text) : null;
+      } catch {
+        /* not JSON */
+      }
+      asked.push({ url: req.url, headers: req.headers, body });
+      const [status, value] = (await handle(req, body)) ?? [404, {}];
+      res.writeHead(status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(value));
+    });
+  });
+  server.listen(port, "127.0.0.1");
+  return { server, asked };
+}
+
+module.exports = { repo, bin, check, fail, failures, finish, copyDir, until, serverUp, pickPort, fakeApi };

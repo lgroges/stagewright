@@ -194,7 +194,20 @@ one episode or all of them. **Project files** edits `project.yaml`, `characters.
 (set each role's `track` for doubling), `locations.yaml`, `songs.yaml` and `comments.yaml`; invalid YAML
 is refused with the reason.
 
-Deleted scenes go to the project's `.trash/` folder, not the bin.
+**Notes.** Everything you keep around the script, linked to what it's about. **Notes**
+lists the characters, places and your research notes, each with a Markdown page:
+type `[[` to link to any character, place, scene, beat or note. Labelled links ("Hettie
+— courts — Tobias", the other way "courted by") are added above the page, and below it
+is everything that links to it, including the scenes a character appears in or a place
+is the setting of. **Beats** is the story's plan: start from a template (Save the Cat,
+three acts, the Story Circle, Freytag's pyramid) or nothing, link each beat to its
+scenes, and see where it lands against where you aimed it. Nothing is enforced. A TV
+series has a sheet for the series and one per episode. Beside the script, **Around this
+scene** shows the open scene's beats, characters, place and the research linked to
+them. Notes are project files (`characters/`, `locations/`, `research/`, `plan/`; see
+[docs/format.md](docs/format.md)), shared when co-writing.
+
+Deleted scenes and notes go to the project's `.trash/` folder, not the bin.
 
 ## Co-writing
 

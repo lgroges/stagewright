@@ -43,7 +43,11 @@ What's built (Review scene with Ollama) gets a second provider.
   Failures (no key, no credit, offline, rate-limited) are reasons, never errors.
 - Cost shown after a review from the response's usage ("about 1p").
 
-## 2. The context web (0.10.0)
+## 2. The context web (0.10.0) — built 2026-11-18
+
+Built as planned except where decisions.md (2026-11-18, "The context web, built") says
+otherwise: beats move with arrows rather than drag, and the extra character and
+location fields are left for later.
 
 ### Records
 

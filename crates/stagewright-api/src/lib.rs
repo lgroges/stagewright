@@ -318,6 +318,7 @@ pub fn dispatch(ws: &mut Workspace, cmd: &str, args: Value) -> ApiResult {
         "context_record" => context::record(&ws.root()?, &arg_str(&args, "id")?),
         "scene_context" => context::scene_context(&ws.root()?, &arg_str(&args, "id")?),
         "research_new" => context::research_new(&ws.root()?, &arg_str(&args, "title")?),
+        "page_parse" => context::page_parse(&args),
         "page_set" => context::page_set(&args),
         "sheet_text" => context::sheet_text(&args),
         "sheet_template" => context::sheet_template(&args),

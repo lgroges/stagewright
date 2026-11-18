@@ -1,5 +1,6 @@
 <script lang="ts">
   import { app } from "../lib/state.svelte";
+  import SceneContext from "./SceneContext.svelte";
   import type { SceneMeta } from "../lib/api";
 
   // Drafts for free-text fields: reset only when a different scene opens, so a
@@ -189,6 +190,8 @@
     </label>
 
     <p class="muted small">ID {app.scene.id} · {app.scene.summary.file}</p>
+
+    <SceneContext />
   </div>
 {/if}
 

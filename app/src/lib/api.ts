@@ -375,6 +375,82 @@ export const ai = {
   setKey: (key: string) => transport("ai_key_set", { key }) as Promise<{ ok: true; has_key: boolean }>,
 };
 
+// ------------------------------------------------------------ the context web
+
+export type RecordKind = "character" | "location" | "scene" | "beat" | "research";
+
+/** A record in the context web (a character, place, scene, beat or research note). */
+export interface ContextRecord {
+  id: string;
+  kind: RecordKind;
+  name: string;
+  /** A scene's label ("1.2"). */
+  label: string | null;
+  /** Its page's file, if it can have one ("characters/dee.md"). */
+  file: string | null;
+  has_page: boolean;
+}
+
+/** A labelled link stored on a page. */
+export interface PageLink {
+  to: string;
+  label?: string;
+  back?: string;
+}
+
+export interface Beat {
+  id: string;
+  title: string;
+  summary?: string | null;
+  purpose?: string | null;
+  /** Where it should land: a share of the sheet's length (0–1). */
+  target?: number | null;
+  scenes: string[];
+  episodes: number[];
+  /** Where it lands now (from the index; not saved). */
+  lands?: number | null;
+  lands_at?: string | null;
+}
+
+export interface BeatSheet {
+  episode: number | null;
+  template: string | null;
+  beats: Beat[];
+  file: string;
+}
+
+export interface ContextIndex {
+  records: ContextRecord[];
+  sheets: BeatSheet[];
+  templates: { id: string; name: string }[];
+  broken: { from: string; to: string }[];
+  duplicates: string[];
+}
+
+/** A record linked to another, seen from that other. */
+export interface Neighbour {
+  id: string;
+  kind: RecordKind;
+  name: string;
+  label: string | null;
+  /** The other record made the link (a backlink). */
+  incoming: boolean;
+  how: "link" | "text" | "plan";
+}
+
+/** Something around a scene, with its page's text. */
+export interface ContextItem {
+  id: string;
+  kind: RecordKind;
+  name: string;
+  label: string | null;
+  text: string | null;
+  /** Research reached through a character, place or beat: its name. */
+  via: string | null;
+  summary?: string | null;
+  purpose?: string | null;
+}
+
 export interface CollabConfig {
   relay: string;
   room: string;
@@ -440,6 +516,19 @@ export const api = {
   commentsParse: (text: string) => call<{ comments: Comment[] }>("comments_parse", { text }),
   commentEditText: (text: string, op: CommentOp) => call<{ comments: Comment[]; text: string }>("comment_edit_text", { text, op }),
   fileRead: (name: string) => call<ProjectFile>("file_read", { name }),
+  fileTrash: (name: string) => call<{ ok: true }>("file_trash", { name }),
+  contextIndex: () => call<ContextIndex>("context_index"),
+  contextRecord: (id: string) =>
+    call<{ id: string; kind: RecordKind; name: string; file: string | null; links: Neighbour[] }>("context_record", { id }),
+  sceneContext: (id: string) => call<{ scene: string; items: ContextItem[] }>("scene_context", { id }),
+  pageParse: (text: string) =>
+    call<{ meta: { title?: string; tags?: string[]; sources?: string[]; links?: PageLink[] }; body: string }>("page_parse", { text }),
+  pageSet: (text: string, key: "links" | "title" | "tags" | "sources" | "body", value: unknown) =>
+    call<{ text: string }>("page_set", { text, key, value }),
+  researchNew: (title: string) => call<{ id: string; file: string; text: string }>("research_new", { title }),
+  sheetText: (sheet: Omit<BeatSheet, "file" | "episode">) => call<{ text: string }>("sheet_text", { sheet }),
+  sheetTemplate: (template: string, episode: number | null) =>
+    call<{ sheet: Omit<BeatSheet, "file" | "episode"> }>("sheet_template", { template, episode }),
   fileSave: (name: string, text: string, base_version: string) =>
     call<ProjectFile>("file_save", { name, text, base_version }),
   // co-writing

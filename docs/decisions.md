@@ -4,6 +4,40 @@ Choices made about Stagewright and why, newest first. Each entry: what we chose,
 the reason, and what we didn't do. Ideas still open or turned down are in
 [ideas.md](ideas.md).
 
+## 2026-11-18 · The context web, built (0.10.0)
+
+Part 2 of [plans/context-and-ai.md](plans/context-and-ai.md).
+
+- **Notes are project files**, not a new store: `characters/<id>.md`,
+  `locations/<id>.md`, `research/<id>.md`, `plan/beats.yaml`, `plan/episodes/<EE>.yaml`.
+  They're read and saved through the same file commands as project.yaml (checked
+  before saving, like YAML), included in the co-writing snapshot, and deleted to
+  `.trash/`. So co-writing, the skill and other tools see them with nothing extra.
+  Format version 7.
+- **The web is worked out on each read** (`stagewright_core::context::Web`) from the
+  pages, sheets and scenes: stored links, `[[id]]` links in the text, and implied ones
+  (a scene's location and the characters who speak or are named in it; a beat's
+  scenes). A link is stored once, at one end; the other end shows it with its `back`
+  label. Not cached: a project's notes are small next to its scenes.
+- **Where a beat lands** is the start of its first scene (or, on a series sheet, its
+  first episode) as a share of the running time of the sheet's scenes, shown as a
+  percentage and as a page (screen) or minute (stage). Off by more than 10 points
+  is shown in the warning colour; nothing more is made of it.
+- **Beats are reordered with arrows**, not drag and drop as the plan said: simpler and
+  works from the keyboard. Drag can come later.
+- **Make a scene for it** creates an outline scene at the end of the last act (of the
+  episode, for an episode's sheet) with the beat's title and summary, and links it.
+- **Around this scene** (`scene_context`) is one hop: the scene's beats, characters and
+  location, and research linked to any of them, each with why it's there ("via
+  Tobias"). It's the set the editorial read (0.11.0) will be given.
+- **A broken link is a script-check issue** (`broken-link`, under "Notes"), as are two
+  records with the same id.
+- **Saves from the Notes and Beats views go one after another** (a queue), each with the
+  latest text, so quick edits can't overwrite each other.
+- **Not done**: the extra fields the plan listed for characters (`age`, `role`) and
+  locations (`period`, `description`); the page holds them as text for now (ideas.md).
+  Deleting a note while co-writing is refused (ideas.md).
+
 ## 2026-11-18 · Tidying the AI review
 
 - **The Rust AI module is split by job**: `ai/mod.rs` (the review: which provider, the

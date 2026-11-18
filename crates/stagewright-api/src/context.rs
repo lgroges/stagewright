@@ -182,6 +182,9 @@ pub fn index(root: &Path) -> ApiResult {
                         }
                     });
                     let mut v = serde_json::to_value(b).unwrap_or_default();
+                    // Always present for the app, though a sheet leaves them out when empty.
+                    v["scenes"] = json!(b.scenes);
+                    v["episodes"] = json!(b.episodes);
                     v["lands"] = json!(lands);
                     v["lands_at"] = json!(at);
                     v
@@ -293,17 +296,27 @@ pub fn scene_context(root: &Path, id: &str) -> ApiResult {
     Ok(json!({ "scene": id, "items": items }))
 }
 
-/// A page's text with a frontmatter key set (`links`, `title`, `tags`,
-/// `sources`; `null` removes it). Args: `text`, `key`, `value`.
+/// A page's parts: its frontmatter (`title`, `tags`, `sources`, `links`) and
+/// its text. Args: `text`.
+pub fn page_parse(args: &Value) -> ApiResult {
+    let page = Page::parse(args.get("text").and_then(Value::as_str).unwrap_or(""))
+        .map_err(|e| ApiError::new("invalid_yaml", e))?;
+    Ok(json!({ "meta": page.meta, "body": page.body }))
+}
+
+/// A page's text with one part changed: a frontmatter key (`links`, `title`,
+/// `tags`, `sources`; `null` removes it) or the `body`. Args: `text`, `key`,
+/// `value`.
 pub fn page_set(args: &Value) -> ApiResult {
     let key = args.get("key").and_then(Value::as_str).unwrap_or("");
-    if !["links", "title", "tags", "sources"].contains(&key) {
-        return Err(ApiError::new("bad_args", format!("'{key}' can't be set on a page")));
-    }
+    let value = args.get("value").unwrap_or(&Value::Null);
     let mut page = Page::parse(args.get("text").and_then(Value::as_str).unwrap_or(""))
         .map_err(|e| ApiError::new("invalid_yaml", e))?;
-    page.set(key, args.get("value").unwrap_or(&Value::Null))
-        .map_err(|e| ApiError::new("invalid_yaml", e))?;
+    match key {
+        "body" => page.body = value.as_str().unwrap_or("").to_string(),
+        "links" | "title" | "tags" | "sources" => page.set(key, value).map_err(|e| ApiError::new("invalid_yaml", e))?,
+        _ => return Err(ApiError::new("bad_args", format!("'{key}' can't be set on a page"))),
+    }
     Ok(json!({ "text": page.to_text() }))
 }
 
@@ -419,6 +432,10 @@ mod tests {
         assert!(mid > 0.3 && mid < 0.8, "{mid}");
         assert!(beats[3]["lands_at"].as_str().unwrap().starts_with("minute "));
         assert!(beats[1]["lands"].is_null());
+        assert_eq!(
+            (beats[1]["scenes"].clone(), beats[1]["episodes"].clone()),
+            (json!([]), json!([]))
+        );
         assert_eq!(v["sheets"][0]["file"], "plan/beats.yaml");
         assert_eq!(v["templates"].as_array().unwrap().len(), TEMPLATES.len());
 
@@ -522,7 +539,14 @@ mod tests {
         );
         let v = page_set(&json!({ "text": v["text"], "key": "links", "value": null })).unwrap();
         assert_eq!(v["text"], "Notes.\n");
-        assert!(page_set(&json!({ "text": "", "key": "body", "value": 1 })).is_err());
+        assert!(page_set(&json!({ "text": "", "key": "colour", "value": 1 })).is_err());
+        let v = page_set(&json!({ "text": "---\ntitle: T\n---\nOld.\n", "key": "body", "value": "New.\n" })).unwrap();
+        assert_eq!(v["text"], "---\ntitle: T\n---\nNew.\n");
+        let parts = page_parse(&json!({ "text": v["text"] })).unwrap();
+        assert_eq!(
+            (parts["meta"]["title"].as_str(), parts["body"].as_str()),
+            (Some("T"), Some("New.\n"))
+        );
         let d = sample();
         std::fs::create_dir_all(d.path().join("research")).unwrap();
         std::fs::write(d.path().join("research/harbour-signs.md"), "x").unwrap();

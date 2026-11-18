@@ -17,11 +17,18 @@ import {
   type SceneSummary,
 } from "./api";
 import { AiState } from "./ai.svelte";
+import { NotesState } from "./notes.svelte";
 import { CollabSession } from "./collab/session.svelte";
 import { readPref, writePref } from "./prefs";
 
 type SaveStatus = "saved" | "unsaved" | "saving" | "conflict" | "error";
-type MainView = { kind: "script" } | { kind: "production" } | { kind: "cast" } | { kind: "file"; name: string };
+type MainView =
+  | { kind: "script" }
+  | { kind: "production" }
+  | { kind: "cast" }
+  | { kind: "notes" }
+  | { kind: "beats" }
+  | { kind: "file"; name: string };
 
 interface OpenScene {
   id: string;
@@ -121,6 +128,7 @@ class AppState {
     this.commentsText = null;
     this.activeComment = null;
     this.ai.reset();
+    this.notes.reset();
     this.scene = null;
     this.view = { kind: "script" };
     if (resumeSharing) {
@@ -642,6 +650,14 @@ class AppState {
   // -------------------------------------------------------------- AI review
 
   ai = new AiState(this);
+
+  // -------------------------------------------------------------- notes, research, beats
+
+  notes = new NotesState(this);
+
+  showView(kind: "notes" | "beats") {
+    this.view = { kind };
+  }
 
   /** A line to show once its scene is open (from the Production issue list). */
   goTo = $state<{ id: string; line: number } | null>(null);

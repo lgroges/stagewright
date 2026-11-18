@@ -35,6 +35,12 @@ it's settled, either built or turned down for good.
   need an image model, which Claude isn't (a local one through ComfyUI, or a hosted
   image API). Drafting scenes is a change of stance: so far the AI comments on the
   writing and doesn't write it (since the first plan, 2026-11-01).
+- **Deleting notes while co-writing.** The shared document carries files' text but not
+  their deletion, so the app refuses to delete a note while co-writing (2026-11-18).
+- **Structured fields for characters and places** from the context-web plan: `age` and
+  `role` in characters.yaml, `period` and `description` in locations.yaml. Left out of
+  0.10.0; the notes page holds them as text, which the editorial read can use as it is.
+- **Dragging beats to reorder** them, as well as the arrows (2026-11-18).
 - **Hosting the co-writing relay.** It runs locally for now; where it should live
   for real is undecided.
 - **Suggested edits**, like Google Docs' suggesting mode: proposed insertions and

@@ -7,6 +7,8 @@
   import MetaPanel from "./components/MetaPanel.svelte";
   import ProductionView from "./components/ProductionView.svelte";
   import CastView from "./components/CastView.svelte";
+  import NotesView from "./components/NotesView.svelte";
+  import BeatsView from "./components/BeatsView.svelte";
   import FileEditor from "./components/FileEditor.svelte";
   import ShareDialog from "./components/ShareDialog.svelte";
   import UpdateToast from "./components/UpdateToast.svelte";
@@ -94,6 +96,8 @@
         <button class="ghost" class:on={app.view.kind === "script"} onclick={() => (app.view = { kind: "script" })}>Script</button>
         <button class="ghost" class:on={app.view.kind === "production"} onclick={() => (app.view = { kind: "production" })}>Production</button>
         <button class="ghost" class:on={app.view.kind === "cast"} onclick={() => (app.view = { kind: "cast" })}>Cast</button>
+        <button class="ghost" class:on={app.view.kind === "notes"} onclick={() => (app.view = { kind: "notes" })}>Notes</button>
+        <button class="ghost" class:on={app.view.kind === "beats"} onclick={() => (app.view = { kind: "beats" })}>Beats</button>
         <select
           aria-label="Project files"
           value={app.view.kind === "file" ? app.view.name : ""}
@@ -202,6 +206,10 @@
         <ProductionView />
       {:else if app.view.kind === "cast"}
         <CastView />
+      {:else if app.view.kind === "notes"}
+        <NotesView />
+      {:else if app.view.kind === "beats"}
+        <BeatsView />
       {:else if app.view.kind === "file"}
         {#key app.view.name}<FileEditor name={app.view.name} />{/key}
       {:else if !app.scene}

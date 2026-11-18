@@ -8,7 +8,9 @@ description: Read Liam's Stagewright writing projects (plays, musicals, film and
 Stagewright is Liam's scene-based writing app (github.com/lgroges/stagewright). A
 project is a folder: `project.yaml`, `characters.yaml`, `locations.yaml`,
 `songs.yaml`, `comments.yaml`, and one `.scene` file per scene under `acts/<NN>/` or,
-for a TV series, `episodes/<EE>/acts/<NN>/`.
+for a TV series, `episodes/<EE>/acts/<NN>/`. Around the script there may be notes:
+`characters/<id>.md`, `locations/<id>.md`, `research/<id>.md` and beat sheets in
+`plan/`.
 
 ## 1. Get the current format first
 
@@ -25,7 +27,7 @@ the summary below. Try, in order:
    fetch it then, or carry on with the summary below if he'd rather not.
 
 The page starts with a "Format version" line. This skill was written for **format version
-6**. If the live version is higher, use the live page, and tell Liam in one line that
+7**. If the live version is higher, use the live page, and tell Liam in one line that
 this skill can be refreshed (he can ask Claude in the Stagewright repo to propose the
 update). If the page can't be reached, use the summary below and say it may be out
 of date.
@@ -49,11 +51,16 @@ status, synopsis, notes, location, on-stage-silent, ratings, tags) and then the 
 For a whole-script read, put it together in that order with scene labels such as
 "E1 1.2 The van", and keep track of which scene each finding comes from.
 
+Read the notes with the script when they bear on the question: a character's or
+place's page (`characters/<id>.md`, `locations/<id>.md`), research notes, and the beat
+sheet (what each beat is for and which scenes carry it out). They're Liam's own
+planning, so they tell you what a scene is meant to do and what's established.
+
 Read `comments.yaml` too: each comment is pinned to a passage of one scene (by
 `scene` id and `quote`). Unresolved comments are open questions Liam or a co-writer
 raised; mention ones that bear on what he asked.
 
-## 4. Summary of the format (version 6)
+## 4. Summary of the format (version 7)
 
 **project.yaml**: `title`, `subtitle`, `authors`, `contact`, `format` (`stage`,
 `film`, `tv-single`, `tv-multi`), `series` and `episodes: [{number, title}]`, `acts:
@@ -89,6 +96,19 @@ singers, note}` (scene ids).
 using `before`/`after` to pick between repeats; if it's missing, the comment is
 detached.
 
+**Notes pages** (`characters/<id>.md`, `locations/<id>.md`, `research/<id>.md`):
+Markdown with optional YAML frontmatter: `title` (research notes), `tags`, `sources`
+(a list of strings), `links: [{to, label, back}]`. `to` is an id; `label` reads from
+this record to the other ("Kelley — scryer to — Dee"), `back` the other way. In the
+text, `[[id]]` or `[[id|shown text]]` is a link. Ids are unique across characters,
+locations, scenes, beats and research notes. A scene is implicitly linked to its
+`location` and the characters who speak or are named in it.
+
+**Beat sheets**: `plan/beats.yaml` (the play's or film's, or a series' sheet) and
+`plan/episodes/<EE>.yaml` (an episode's): `template` and `beats: [{id, title, summary,
+purpose, target, scenes, episodes}]`. `target` is where the beat should land as a share
+of the sheet's length (0–1); it lands at the start of its first scene (or episode).
+
 **Running time**: stage, spoken words ÷ `words_per_minute` + lyric lines ×
 `seconds_per_lyric_line`; film and TV, about a minute a page (half for multi-camera).
 A scene's `duration` overrides either. Give these as estimates.
@@ -101,6 +121,29 @@ or `scene` numbers or rename files; the app does that when scenes move), cues in
 capitals, one blank line between paragraphs, and comments only ever in
 `comments.yaml`. Hand back the changed files with a short note of what changed, and
 put them in his folder only when he asks.
+
+**Research into the project.** When Liam asks for research (from this session or
+another) to go into a project, write each topic as a research note,
+`research/<id>.md`:
+
+```markdown
+---
+title: "Harbour bunting"
+tags: [period, props]
+sources: ["Flags of the Coast (1890)", "https://…"]
+links:
+  - {to: tobias, label: "hung by"}
+---
+Findings in your own words, with [[sc-1-1]] or [[the-quay|the quay]] where they apply.
+```
+
+The id is the title as a slug (lower case, hyphens), and must not clash with any
+character, location, scene, beat or existing note. Link only to ids that exist (check
+characters.yaml, locations.yaml, scene frontmatter `id`s, the beat sheets and
+`research/`): the app marks a link to anything else as broken. Put sources in
+`sources`, one per entry, and summarise rather than copy. Write the notes into his
+`research/` folder when the session can reach it and he's asked; otherwise hand back
+the files to drop in.
 
 Liam's scripts are unpublished work, some co-written: don't publish or share them
 anywhere unless he asks.

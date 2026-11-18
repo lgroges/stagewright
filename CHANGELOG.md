@@ -7,6 +7,21 @@ change, the cursor, is listed under 0.3.0.)
 
 ## Unreleased
 
+- **Notes**: a new view for notes on each character and place, and research notes of
+  your own (with a title, tags and sources). Type `[[` to link to any character,
+  place, scene, beat or note; add labelled links ("Hettie — courts — Tobias"), which
+  show at the other end the other way round ("courted by"). Each note lists what links
+  to it, including the scenes a character appears in. A link to something that doesn't
+  exist is pointed out by the check. Notes are files in the project
+  (`characters/hettie.md`, `research/…`), shared when co-writing.
+- **Beats**: a beat sheet for the story, started from Save the Cat, three acts, the
+  Story Circle, Freytag's pyramid or nothing, all of it editable. Link each beat to
+  the scenes that carry it out and see where it lands against where you aimed it
+  ("lands 31%, page 28 (+6)"). **Make a scene for it** adds an outline scene from a
+  beat. A TV series has a sheet for the series and one for each episode.
+- **Around this scene**, under the scene's details: its beats, its characters and place
+  with their notes, and research linked to any of them.
+
 ## 0.9.0 (2026-11-18)
 
 - **AI review with Claude**: under Production → Checks…, the review can use Claude
